@@ -71,25 +71,30 @@ class TerminalExecutor:
         
         return True, "OK"
 
-    # Smart timeouts per command type (seconds)
+    # AGGRESSIVE timeouts - we don't wait forever! (seconds)
     COMMAND_TIMEOUTS = {
-        "nmap": 180,           # 3 minutes for normal nmap
-        "nmap -p-": 300,       # 5 minutes for full port scan (not forever)
-        "nmap -sV -p-": 300,   # 5 minutes max
-        "nikto": 180,
-        "sqlmap": 240,
-        "nuclei": 240,
-        "gobuster": 180,
-        "dirb": 180,
-        "ffuf": 180,
-        "hydra": 180,
-        "subfinder": 120,
-        "whatweb": 60,
-        "whois": 30,
-        "dig": 30,
-        "curl": 60,
-        "wget": 120,
-        "wpscan": 240,
+        "nmap -p-": 120,       # 2 min MAX - should use --top-ports instead
+        "nmap -sV -p-": 120,   # 2 min MAX - too slow, AI should avoid
+        "nmap": 90,            # 1.5 min for normal nmap
+        "nikto": 90,           # 1.5 min - slow scanner, prefer nuclei
+        "sqlmap": 120,         # 2 min - should use --threads and --batch
+        "nuclei": 120,         # 2 min - good scanner, fast
+        "gobuster": 90,        # 1.5 min - prefer ffuf
+        "dirb": 90,            # 1.5 min - slow, prefer ffuf
+        "ffuf": 90,            # 1.5 min - fast fuzzer
+        "hydra": 120,          # 2 min - brute force
+        "subfinder": 60,       # 1 min - fast subdomain
+        "whatweb": 30,         # 30 sec - quick fingerprint
+        "whois": 15,           # 15 sec - instant
+        "dig": 15,             # 15 sec - instant
+        "curl": 30,            # 30 sec - quick request
+        "wget": 60,            # 1 min - download
+        "wpscan": 120,         # 2 min - wordpress scan
+        "httpx": 60,           # 1 min - http probe
+        "wafw00f": 30,         # 30 sec - WAF detect
+        "wfuzz": 90,           # 1.5 min - fuzzer
+        "amass": 120,          # 2 min - subdomain
+        "masscan": 60,         # 1 min - fast port scan
     }
 
     def _get_smart_timeout(self, command):
@@ -99,7 +104,7 @@ class TerminalExecutor:
         for pattern in sorted(self.COMMAND_TIMEOUTS.keys(), key=len, reverse=True):
             if pattern in cmd_lower:
                 return self.COMMAND_TIMEOUTS[pattern]
-        return 300  # Default 5 minutes
+        return 90  # Default 1.5 minutes - be aggressive!
 
     def _wrap_sudo(self, command):
         """
@@ -189,10 +194,28 @@ class TerminalExecutor:
                 self.failed_commands += 1
                 
                 duration = time.time() - start_time
+                
+                # Give AI actionable feedback on timeout
+                timeout_hints = {
+                    "nmap -p-": "Use --top-ports 100 or -F instead of -p-",
+                    "nmap": "Add -T4 for speed or use --top-ports 50",
+                    "nikto": "Use nuclei instead (faster). Or add -Tuning 123bde",
+                    "gobuster": "Use ffuf instead (much faster)",
+                    "dirb": "Use ffuf instead (much faster)",
+                    "sqlmap": "Add --threads=10 --batch --level=1",
+                    "hydra": "Use smaller wordlist or fewer threads",
+                }
+                
+                hint = "Try a faster approach or add timeout flags."
+                for pattern, advice in timeout_hints.items():
+                    if pattern in command.lower():
+                        hint = advice
+                        break
+                
                 result = {
                     "success": False,
                     "output": stdout[:5000] if stdout else "",
-                    "error": f"TIMEOUT after {timeout}s. Partial output collected.",
+                    "error": f"⚠️ TIMEOUT after {timeout}s! {hint}",
                     "return_code": -1,
                     "duration": duration,
                     "command": command

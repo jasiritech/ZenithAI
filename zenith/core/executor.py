@@ -237,9 +237,42 @@ class TerminalExecutor:
             if stderr and len(stderr) > max_output:
                 stderr = stderr[:max_output] + f"\n\n... [ERROR TRUNCATED - {len(stderr)} total chars] ..."
 
+            # === SMART OUTPUT ENHANCEMENT ===
+            # Detect failed downloads (wget/curl returned 0 but file is empty)
+            output_enhanced = stdout or ""
+            if success and ("wget " in command or "curl " in command):
+                # Check if this was a download command
+                if " -O " in command or " -o " in command:
+                    # Try to detect the output file
+                    import re
+                    file_match = re.search(r'-[oO]\s+([^\s]+)', command)
+                    if file_match:
+                        outfile = file_match.group(1)
+                        try:
+                            import os
+                            if os.path.exists(outfile):
+                                size = os.path.getsize(outfile)
+                                if size == 0:
+                                    output_enhanced += f"\n⚠️ WARNING: Downloaded file '{outfile}' is EMPTY (0 bytes)! Download failed."
+                                    output_enhanced += "\n💡 TIP: Try 'sudo apt-get install -y seclists wordlists' for wordlists."
+                                    success = False
+                                else:
+                                    output_enhanced += f"\n✓ Downloaded '{outfile}' ({size} bytes)"
+                        except:
+                            pass
+
+            # Detect missing wordlist errors
+            if "file for passwords not found" in (stdout or "").lower() or "file for passwords not found" in (stderr or "").lower():
+                output_enhanced += "\n💡 TIP: Install wordlists with: sudo apt-get install -y seclists wordlists"
+                output_enhanced += "\n💡 TIP: Or gunzip rockyou: sudo gunzip -k /usr/share/wordlists/rockyou.txt.gz"
+
+            if "file for passwords is empty" in (stdout or "").lower() or "file for passwords is empty" in (stderr or "").lower():
+                output_enhanced += "\n⚠️ The wordlist file exists but is EMPTY. Download failed or wrong file."
+                output_enhanced += "\n💡 TIP: Use system wordlist: /usr/share/wordlists/dirb/common.txt"
+
             result = {
                 "success": success,
-                "output": stdout or "",
+                "output": output_enhanced,
                 "error": stderr or "",
                 "return_code": process.returncode,
                 "duration": round(duration, 2),

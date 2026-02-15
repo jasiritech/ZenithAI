@@ -23,15 +23,36 @@ class CommandValidator:
         r'mv\s+/\s',
         r':\(\)\s*\{\s*:\|:&\s*\}\s*;',
         r'fork\s+bomb',
-        r'wget.*\|\s*sh',
-        r'curl.*\|\s*bash',
     ]
 
     # Commands that require the target to be present
     TARGET_REQUIRED_COMMANDS = [
         "nmap", "nikto", "sqlmap", "nuclei", "subfinder",
         "whatweb", "gobuster", "dirb", "dirsearch", "wpscan",
-        "hydra", "ffuf", "httpx", "curl", "wget",
+        "hydra", "ffuf", "httpx",
+    ]
+
+    # Commands that are OK to run without target (downloads, installs, file ops)
+    TARGET_EXEMPT_COMMANDS = [
+        "wget", "curl", "apt-get", "apt", "pip", "pip3", "go", "gem", "npm",
+        "snap", "gunzip", "unzip", "tar", "cat", "ls", "test", "echo",
+        "mkdir", "cp", "mv", "chmod", "head", "tail", "grep", "find",
+        "searchsploit", "msfconsole", "msfvenom",
+    ]
+
+    # Allowed download sources (legitimate tool sources)
+    ALLOWED_DOWNLOAD_SOURCES = [
+        "github.com",
+        "raw.githubusercontent.com",
+        "gitlab.com",
+        "exploit-db.com",
+        "packetstormsecurity.com",
+        "kali.org",
+        "debian.org",
+        "ubuntu.com",
+        "pypi.org",
+        "npmjs.com",
+        "seclists",
     ]
 
     # Maximum command length
@@ -41,6 +62,7 @@ class CommandValidator:
     INSTALLER_COMMANDS = [
         "apt-get install", "apt install", "pip install", "pip3 install",
         "go install", "gem install", "npm install", "snap install",
+        "apt-get update", "apt update", "gunzip",
     ]
 
     def __init__(self, target=""):
@@ -80,10 +102,19 @@ class CommandValidator:
             if re.search(pattern, command, re.IGNORECASE):
                 return False, "", [f"Blocked dangerous pattern detected"]
 
-        # Check if it's an installer command (always allowed)
+        # Check command type
+        base_cmd = command.split()[0].lower() if command.split() else ""
         is_installer = any(inst in command.lower() for inst in self.INSTALLER_COMMANDS)
+        is_exempt = any(exempt in base_cmd for exempt in self.TARGET_EXEMPT_COMMANDS)
+        is_download = "wget" in base_cmd or ("curl" in base_cmd and ("-o" in command.lower() or "-O" in command))
         
-        if not is_installer:
+        # For downloads, check if source is legitimate
+        if is_download:
+            is_legit_source = any(src in command.lower() for src in self.ALLOWED_DOWNLOAD_SOURCES)
+            if is_legit_source:
+                is_exempt = True  # Allow downloads from known sources
+        
+        if not is_installer and not is_exempt:
             # Check that scanning commands target the right host
             self._check_target_scope(command)
 

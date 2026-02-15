@@ -13,7 +13,12 @@ from datetime import datetime, timedelta
 from zenith.core.ai_brain import AIBrain
 from zenith.core.executor import TerminalExecutor
 from zenith.core.knowledge_base import KnowledgeBase
+from zenith.core.session import SessionManager
+from zenith.core.validator import CommandValidator
+from zenith.core.proxy import ProxyManager
 from zenith.utils.display import Display, Colors
+from zenith.utils.report_generator import HTMLReportGenerator
+from zenith.utils.notifier import Notifier
 
 
 class ZenithScanner:
@@ -35,7 +40,9 @@ class ZenithScanner:
     MAX_ITERATIONS = 200
     MAX_PHASE_ITERATIONS = 50
 
-    def __init__(self, api_key, target, goal=None, model="flash", max_iterations=None, working_dir=None):
+    def __init__(self, api_key, target, goal=None, model="flash", max_iterations=None, 
+                 working_dir=None, profile=None, proxy_config=None, notify_config=None,
+                 resume_session=None):
         """
         Initialize Zenith Scanner.
         
@@ -46,6 +53,10 @@ class ZenithScanner:
             model: 'pro' or 'flash'
             max_iterations: Maximum AI iterations
             working_dir: Working directory for output files
+            profile: Scan profile name (quick, full, stealth, web, network, api)
+            proxy_config: Proxy configuration dict
+            notify_config: Notification configuration dict
+            resume_session: Session ID to resume
         """
         Display.banner()
         Display.section("INITIALIZING ZENITH AI SCANNER")
@@ -58,8 +69,34 @@ class ZenithScanner:
         self.current_phase = "recon"
         self.phase_iteration = 0
         self.iteration = 0
+        self.profile_name = profile or "custom"
+        self.api_key = api_key
+        self.model_choice = model
         
         working_dir = working_dir or f"/tmp/zenith_{int(time.time())}"
+        self.working_dir = working_dir
+
+        # Initialize Session Manager
+        Display.info("Initializing Session Manager...")
+        self.session_mgr = SessionManager()
+        
+        # Resume or create session
+        if resume_session:
+            self.session_id = resume_session
+            session_data = self.session_mgr.load_session(resume_session)
+            if session_data:
+                self.iteration = session_data.get("current_iteration", 0)
+                self.current_phase = session_data.get("current_phase", "recon")
+                self.phase_iteration = session_data.get("phase_iteration", 0)
+                Display.success(f"Resumed session: {resume_session}")
+                Display.info(f"Resuming from iteration {self.iteration}, phase: {self.current_phase}")
+        else:
+            self.session_id = self.session_mgr.create_session(
+                target=target, goal=self.goal, model=model,
+                api_key_hash=SessionManager.hash_api_key(api_key),
+                max_iterations=self.max_iterations
+            )
+            Display.info(f"Session: {self.session_id}")
 
         # Initialize components
         Display.info("Initializing AI Brain...")
@@ -70,12 +107,35 @@ class ZenithScanner:
         
         Display.info("Initializing Knowledge Base...")
         self.kb = KnowledgeBase(target, save_dir=working_dir)
+
+        # Initialize Command Validator
+        Display.info("Initializing Command Validator...")
+        self.validator = CommandValidator(target=target)
+
+        # Initialize Proxy Manager
+        self.proxy = ProxyManager(proxy_config) if proxy_config else ProxyManager.from_env()
+        if self.proxy.enabled:
+            Display.info(f"Proxy: {self.proxy.get_status()}")
+            ok, msg = self.proxy.verify()
+            if ok:
+                Display.success(f"Proxy verified: {msg}")
+            else:
+                Display.warning(f"Proxy verification failed: {msg}")
+
+        # Initialize Notifier
+        self.notifier = Notifier(notify_config) if notify_config else Notifier.from_env()
+        if self.notifier.enabled:
+            Display.success("Notifications enabled!")
+
+        # Initialize HTML Report Generator
+        self.html_reporter = HTMLReportGenerator()
         
         # Setup signal handler for graceful stop
         signal.signal(signal.SIGINT, self._signal_handler)
         
         Display.success("All systems initialized!")
         Display.info(f"Target: {Colors.BOLD}{target}{Colors.RESET}")
+        Display.info(f"Profile: {self.profile_name}")
         Display.info(f"Goal: {self.goal[:80]}...")
         Display.info(f"Model: {self.ai.model_name}")
         Display.info(f"Max iterations: {self.max_iterations}")
@@ -85,6 +145,17 @@ class ZenithScanner:
         """Handle Ctrl+C gracefully."""
         print(f"\n\n  {Colors.YELLOW}[!] Ctrl+C detected - Stopping gracefully...{Colors.RESET}")
         self.running = False
+        # Save session for resume
+        self.session_mgr.mark_interrupted(self.session_id)
+        self.session_mgr.save_state(
+            self.session_id,
+            current_iteration=self.iteration,
+            current_phase=self.current_phase,
+            phase_iteration=self.phase_iteration,
+            working_dir=self.working_dir,
+            knowledge_base_file=self.kb.db_file,
+        )
+        Display.info(f"Session saved! Resume with: python3 zenith.py --resume {self.session_id}")
 
     def run(self):
         """
@@ -93,6 +164,9 @@ class ZenithScanner:
         """
         Display.section("STARTING AUTONOMOUS SCAN")
         Display.phase(self.current_phase)
+
+        # Send scan start notification
+        self.notifier.notify_scan_start(self.target, self.ai.model_name, self.profile_name)
 
         last_command = ""
         last_output = ""
@@ -180,6 +254,22 @@ class ZenithScanner:
                 if expected:
                     Display.info(f"Expected: {Colors.DIM}{expected[:100]}{Colors.RESET}")
 
+                # Validate command
+                is_valid, cleaned_cmd, warnings = self.validator.validate(command)
+                for w in warnings:
+                    Display.warning(f"Validator: {w}")
+                
+                if not is_valid:
+                    Display.error(f"Command rejected by validator")
+                    last_output = f"ERROR: Command rejected - {'; '.join(warnings)}. Try a different approach."
+                    continue
+                
+                command = cleaned_cmd
+                
+                # Wrap with proxy if enabled
+                if self.proxy.enabled:
+                    command = self.proxy.wrap_command(command)
+
                 # Execute the command
                 Display.command(command)
                 result = self.executor.execute(command)
@@ -214,6 +304,11 @@ class ZenithScanner:
                             vuln["severity"],
                             vuln.get("description", "")
                         )
+                        # Send notification
+                        self.notifier.notify_vulnerability(
+                            vuln["title"], vuln["severity"],
+                            vuln.get("description", ""), self.target
+                        )
 
                 # Update for next iteration
                 last_command = command
@@ -236,6 +331,21 @@ class ZenithScanner:
                 else:
                     Display.warning("All phases completed. Generating report.")
                     break
+
+            # Save session state periodically (every 5 iterations)
+            if self.iteration % 5 == 0:
+                self.session_mgr.save_state(
+                    self.session_id,
+                    current_iteration=self.iteration,
+                    current_phase=self.current_phase,
+                    phase_iteration=self.phase_iteration,
+                    ai_calls=self.ai.get_stats()["total_calls"],
+                    commands_executed=self.executor.get_stats()["total_commands"],
+                    commands_failed=self.executor.get_stats()["failed_commands"],
+                    vulnerabilities_found=sum(self.kb.get_vulnerability_count().values()),
+                    working_dir=self.working_dir,
+                    knowledge_base_file=self.kb.db_file,
+                )
 
             # Small delay to avoid overwhelming the API
             time.sleep(1)
@@ -283,6 +393,26 @@ class ZenithScanner:
         except Exception as e:
             Display.error(f"Failed to save AI report: {e}")
 
+        # Generate HTML Report
+        try:
+            scan_info = {
+                "target": self.target,
+                "model": self.ai.model_name,
+                "duration": elapsed,
+                "iterations": self.iteration,
+                "commands_executed": self.executor.get_stats()["total_commands"],
+                "working_dir": self.working_dir,
+                "profile": self.profile_name,
+            }
+            html_file = self.html_reporter.generate(
+                report_data=ai_report,
+                kb_data=self.kb.get_full_data(),
+                scan_info=scan_info
+            )
+            Display.success(f"📄 HTML report generated: {html_file}")
+        except Exception as e:
+            Display.error(f"HTML report generation failed: {e}")
+
         # Show final report
         Display.final_report(ai_report, kb_report_file)
 
@@ -316,6 +446,24 @@ class ZenithScanner:
                 Display.info(f"  {sev}: {count}")
         
         print(f"\n  {Colors.GREEN}{Colors.BOLD}Scan complete! Check reports for full details.{Colors.RESET}\n")
+
+        # Mark session complete
+        self.session_mgr.mark_completed(self.session_id)
+        self.session_mgr.save_state(
+            self.session_id,
+            current_iteration=self.iteration,
+            current_phase="completed",
+            ai_calls=self.ai.get_stats()["total_calls"],
+            commands_executed=self.executor.get_stats()["total_commands"],
+            vulnerabilities_found=total_vulns,
+            status="completed",
+        )
+
+        # Send completion notification
+        self.notifier.notify_scan_end(
+            self.target, elapsed, vuln_counts,
+            risk_rating=ai_report.get("risk_rating", "UNKNOWN") if isinstance(ai_report, dict) else "UNKNOWN"
+        )
 
     def stop(self):
         """Stop the scanner."""

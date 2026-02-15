@@ -46,8 +46,8 @@
 
 ```bash
 # Clone the repo
-git clone https://github.com/YOUR_USERNAME/zenith-ai.git
-cd zenith-ai
+git clone https://github.com/jasiritech/ZenithAI.git
+cd ZenithAI
 
 # Install (Kali Linux / Ubuntu / Parrot OS)
 chmod +x install.sh

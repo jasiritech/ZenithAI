@@ -268,10 +268,46 @@ Output ONLY JSON.
             
             # RATE LIMITED - wait and retry (but respect max errors)
             if "429" in error_msg or "quota" in error_msg.lower():
-                if self.consecutive_errors < self.max_consecutive_errors:
-                    wait_time = min(30 * self.consecutive_errors, 120)
-                    print(f"    [!] Rate limit hit, waiting {wait_time} seconds...")
-                    time.sleep(wait_time)
+                # Rate limit hit - ask user for new API key
+                print(f"\n    {'='*50}")
+                print(f"    ⚠️  RATE LIMIT HIT - API quota exhausted!")
+                print(f"    {'='*50}")
+                print(f"    Current API key: {self.api_key[:10]}...{self.api_key[-4:]}")
+                print(f"    \n    Options:")
+                print(f"    1. Enter new API key to continue")
+                print(f"    2. Press Enter to wait 60s and retry")
+                print(f"    3. Type 'quit' to stop scan")
+                print()
+                
+                try:
+                    user_input = input("    🔑 New API Key (or Enter to wait): ").strip()
+                    
+                    if user_input.lower() == 'quit':
+                        return {
+                            "reasoning": "User chose to stop scan after rate limit.",
+                            "action": "GOAL_ACHIEVED",
+                            "findings_summary": "Scan stopped by user after API rate limit.",
+                            "phase": "REPORT"
+                        }
+                    elif user_input and len(user_input) > 20:
+                        # User provided new API key
+                        if self._switch_api_key(user_input):
+                            print(f"    [✓] Switched to new API key! Continuing scan...")
+                            self.consecutive_errors = 0
+                            return self.think(target, goal, knowledge_base, last_command, last_output, phase)
+                        else:
+                            print(f"    [!] New API key failed. Waiting 60s and retrying with old key...")
+                            time.sleep(60)
+                            return self.think(target, goal, knowledge_base, last_command, last_output, phase)
+                    else:
+                        # User pressed Enter - wait and retry
+                        print(f"    [*] Waiting 60 seconds before retry...")
+                        time.sleep(60)
+                        return self.think(target, goal, knowledge_base, last_command, last_output, phase)
+                        
+                except EOFError:
+                    # Non-interactive mode - just wait
+                    time.sleep(60)
                     return self.think(target, goal, knowledge_base, last_command, last_output, phase)
             
             # TOO MANY CONSECUTIVE ERRORS - stop
@@ -292,6 +328,51 @@ Output ONLY JSON.
                 "phase": "recon",
                 "expected_outcome": "Basic port scan"
             }
+
+    def _switch_api_key(self, new_api_key):
+        """
+        Switch to a new API key and reinitialize the model.
+        Returns True if successful, False if the key doesn't work.
+        """
+        try:
+            print(f"    [*] Testing new API key: {new_api_key[:10]}...{new_api_key[-4:]}")
+            
+            # Configure with new key
+            genai.configure(api_key=new_api_key)
+            
+            # Try to create a model and test it
+            candidate = genai.GenerativeModel(
+                model_name=self.model_name,
+                generation_config={
+                    "temperature": 0.7,
+                    "top_p": 0.95,
+                    "top_k": 40,
+                    "max_output_tokens": 8192,
+                },
+                safety_settings=[
+                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+                ]
+            )
+            
+            # Test the new key
+            test_resp = candidate.generate_content("Reply with OK")
+            _ = test_resp.text
+            
+            # Success! Update everything
+            self.api_key = new_api_key
+            self.model = candidate
+            self.chat = self.model.start_chat(history=[])
+            print(f"    [✓] New API key is working!")
+            return True
+            
+        except Exception as e:
+            print(f"    [!] New API key failed: {str(e)[:100]}")
+            # Revert to old key
+            genai.configure(api_key=self.api_key)
+            return False
 
     def _try_switch_model(self):
         """

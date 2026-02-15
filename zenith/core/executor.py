@@ -6,6 +6,7 @@ import subprocess
 import shlex
 import time
 import os
+import re
 import signal
 from datetime import datetime
 
@@ -243,13 +244,11 @@ class TerminalExecutor:
             if success and ("wget " in command or "curl " in command):
                 # Check if this was a download command
                 if " -O " in command or " -o " in command:
-                    # Try to detect the output file
-                    import re
+                    # Try to detect the output file (re and os already imported at top)
                     file_match = re.search(r'-[oO]\s+([^\s]+)', command)
                     if file_match:
                         outfile = file_match.group(1)
                         try:
-                            import os
                             if os.path.exists(outfile):
                                 size = os.path.getsize(outfile)
                                 if size == 0:

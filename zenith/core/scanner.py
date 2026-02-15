@@ -42,7 +42,7 @@ class ZenithScanner:
 
     def __init__(self, api_key, target, goal=None, model="flash", max_iterations=None, 
                  working_dir=None, profile=None, proxy_config=None, notify_config=None,
-                 resume_session=None):
+                 resume_session=None, sudo_password=None):
         """
         Initialize Zenith Scanner.
         
@@ -103,7 +103,7 @@ class ZenithScanner:
         self.ai = AIBrain(api_key, model_choice=model)
         
         Display.info("Initializing Terminal Executor...")
-        self.executor = TerminalExecutor(working_dir=working_dir)
+        self.executor = TerminalExecutor(working_dir=working_dir, sudo_password=sudo_password)
         
         Display.info("Initializing Knowledge Base...")
         self.kb = KnowledgeBase(target, save_dir=working_dir)

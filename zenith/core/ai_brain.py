@@ -157,8 +157,14 @@ RULES:
 - NEVER use placeholder values like YOUR_TOKEN, YOUR_COOKIE, YOUR_PASSWORD etc.
 - If a command needs cookies/tokens, FIRST grab them with: curl -sk -c /tmp/cookies.txt -D /tmp/headers.txt TARGET_URL
 - Then use the REAL cookie file: --cookie /tmp/cookies.txt or --load-cookies /tmp/cookies.txt
-- For sqlmap with cookies use: sqlmap -u URL --cookie-jar /tmp/cookies.txt or extract cookies first
+- For sqlmap with cookies use: sqlmap -u URL --cookie /tmp/cookies.txt or extract cookies first
 - Always use curl to fetch REAL values before using them in subsequent commands
+- Wordlists are at: /usr/share/wordlists/ (rockyou.txt, dirb/, dirbuster/, seclists/)
+- If rockyou.txt is .gz: gunzip /usr/share/wordlists/rockyou.txt.gz
+- Common paths: /usr/share/seclists/, /usr/share/nmap/scripts/, /usr/share/exploitdb/
+- sudo is available and password is pre-configured - just use sudo normally
+- Use && to chain commands, not separate steps for simple sequences
+- For apt install always use: sudo apt-get install -y PACKAGE (non-interactive)
 
 RESPOND WITH THIS EXACT JSON FORMAT:
 {{

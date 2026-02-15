@@ -27,18 +27,21 @@ class TerminalExecutor:
         "chmod -R 777 /",
     ]
 
-    def __init__(self, working_dir="/tmp/zenith_workspace"):
+    def __init__(self, working_dir="/tmp/zenith_workspace", sudo_password=None):
         """Initialize Terminal Executor."""
         self.working_dir = working_dir
         self.command_history = []
         self.total_commands = 0
         self.failed_commands = 0
         self.current_process = None  # Track running subprocess for Ctrl+C kill
+        self.sudo_password = sudo_password  # Optional sudo password for automated execution
         
         # Create working directory
         os.makedirs(working_dir, exist_ok=True)
         
         print(f"    [✓] Terminal Executor ready (workspace: {working_dir})")
+        if sudo_password:
+            print(f"    [✓] Sudo password configured (commands will run with privileges)")
 
     def kill_current(self):
         """Kill the currently running subprocess (called on Ctrl+C)."""
@@ -98,6 +101,31 @@ class TerminalExecutor:
                 return self.COMMAND_TIMEOUTS[pattern]
         return 300  # Default 5 minutes
 
+    def _wrap_sudo(self, command):
+        """
+        Auto-pipe sudo password to commands that need it.
+        Converts: sudo apt install -y nmap
+        To:       echo 'password' | sudo -S apt install -y nmap
+        """
+        if not self.sudo_password:
+            return command
+        
+        cmd_stripped = command.strip()
+        
+        # Handle 'sudo' at the start
+        if cmd_stripped.startswith('sudo '):
+            # Don't double-wrap if already using -S
+            if 'sudo -S' in cmd_stripped or 'echo' in cmd_stripped.split('sudo')[0]:
+                return command
+            # Replace 'sudo' with 'echo password | sudo -S'
+            return cmd_stripped.replace('sudo ', f"echo '{self.sudo_password}' | sudo -S ", 1)
+        
+        # Handle 'sudo' in the middle (e.g., 'command && sudo apt install')
+        if ' sudo ' in cmd_stripped:
+            return cmd_stripped.replace(' sudo ', f" echo '{self.sudo_password}' | sudo -S ")
+        
+        return command
+
     def execute(self, command, timeout=None):
         """
         Execute a Linux command and return the output.
@@ -127,6 +155,9 @@ class TerminalExecutor:
 
         start_time = time.time()
         self.total_commands += 1
+
+        # Auto-pipe sudo password if available
+        command = self._wrap_sudo(command)
 
         try:
             # Set environment for non-interactive execution

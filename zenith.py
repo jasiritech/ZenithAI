@@ -145,7 +145,7 @@ def interactive_setup():
     
     Returns:
         tuple: (api_key, target, goal, model, max_iterations, 
-                profile_name, proxy_config, notify_config, resume_session)
+                profile_name, proxy_config, notify_config, sudo_password, resume_session)
     """
     clear_screen()
 
@@ -358,7 +358,26 @@ def interactive_setup():
             print(f"  {Colors.GREEN}  [✓] Custom proxy: {proxy_url}{Colors.RESET}")
 
     # ═══════════════════════════════════════
-    # STEP 7: NOTIFICATIONS (optional)
+    # STEP 7: SUDO PASSWORD (optional)
+    # ═══════════════════════════════════════
+    sudo_password = None
+    print(f"\n  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
+    print(f"  {Colors.CYAN}{Colors.BOLD}  🔓  SUDO PASSWORD {Colors.DIM}(optional - press Enter to skip){Colors.RESET}")
+    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
+    print(f"  {Colors.DIM}  Needed for: apt install, service restart, etc.{Colors.RESET}")
+    print(f"  {Colors.DIM}  Skip if your user has passwordless sudo.{Colors.RESET}")
+    print()
+
+    import getpass
+    sudo_input = getpass.getpass(f"  {Colors.YELLOW}  Sudo password (hidden): {Colors.RESET}").strip()
+    if sudo_input:
+        sudo_password = sudo_input
+        print(f"  {Colors.GREEN}  [✓] Sudo password saved (will auto-pipe to sudo commands){Colors.RESET}")
+    else:
+        print(f"  {Colors.DIM}  [ℹ] Skipped - sudo commands may fail if password required{Colors.RESET}")
+
+    # ═══════════════════════════════════════
+    # STEP 8: NOTIFICATIONS (optional)
     # ═══════════════════════════════════════
     notify_config = None
     telegram_token = os.environ.get("ZENITH_TELEGRAM_TOKEN", "")
@@ -394,7 +413,7 @@ def interactive_setup():
         print(f"\n  {Colors.RED}  Scan cancelled.{Colors.RESET}")
         sys.exit(0)
 
-    return api_key, target, goal, model, max_iterations, profile_name, proxy_config, notify_config, None
+    return api_key, target, goal, model, max_iterations, profile_name, proxy_config, notify_config, sudo_password, None
 
 
 def parse_args():
@@ -434,6 +453,7 @@ Profiles: quick, full, stealth, web, network, api, recon-only
     parser.add_argument('--proxy', help='Proxy URL (e.g. socks5://127.0.0.1:1080)')
     parser.add_argument('--resume', metavar='SESSION_ID', help='Resume an interrupted scan session')
     parser.add_argument('--sessions', action='store_true', help='List all saved scan sessions')
+    parser.add_argument('--sudo', action='store_true', help='Prompt for sudo password (for apt install, etc.)')
 
     return parser.parse_args()
 
@@ -460,6 +480,17 @@ def build_proxy_config(args):
             return {"type": "socks4", "host": url}
         else:
             return {"type": "http", "host": url}
+    return None
+
+
+def get_sudo_password(args):
+    """Prompt for sudo password if --sudo flag is set."""
+    if hasattr(args, 'sudo') and args.sudo:
+        import getpass
+        pwd = getpass.getpass(f"  {Colors.YELLOW}Enter sudo password: {Colors.RESET}").strip()
+        if pwd:
+            print(f"  {Colors.GREEN}[✓] Sudo password configured{Colors.RESET}")
+            return pwd
     return None
 
 
@@ -492,6 +523,8 @@ def main():
             show_sessions()
             sys.exit(1)
 
+        sudo_password = get_sudo_password(args)
+
         try:
             scanner = ZenithScanner(
                 api_key=api_key,
@@ -501,6 +534,7 @@ def main():
                 max_iterations=session_data.get("max_iterations", 100),
                 resume_session=args.resume,
                 proxy_config=build_proxy_config(args),
+                sudo_password=sudo_password,
             )
             scanner.run()
         except KeyboardInterrupt:
@@ -540,6 +574,7 @@ def main():
         proxy_config = build_proxy_config(args)
         notify_config = None
         profile_name = args.profile
+        sudo_password = get_sudo_password(args)
 
         # Use profile goal or custom goal
         if profile_name:
@@ -565,7 +600,8 @@ def main():
         profile_name = result[5]
         proxy_config = result[6]
         notify_config = result[7]
-        resume_session = result[8]
+        sudo_password = result[8]
+        resume_session = result[9]
         output_dir = None
 
         # Handle resume from interactive mode
@@ -575,7 +611,7 @@ def main():
                     api_key=api_key, target=target, goal=goal,
                     model=model, max_iterations=max_iterations,
                     resume_session=resume_session, proxy_config=proxy_config,
-                    notify_config=notify_config,
+                    notify_config=notify_config, sudo_password=sudo_password,
                 )
                 scanner.run()
             except KeyboardInterrupt:
@@ -601,6 +637,12 @@ def main():
     # ═══════════════════════════════════════
     # CREATE AND RUN SCANNER
     # ═══════════════════════════════════════
+    # Get sudo_password if not set by interactive/CLI mode
+    try:
+        sudo_password
+    except NameError:
+        sudo_password = None
+
     try:
         scanner = ZenithScanner(
             api_key=api_key,
@@ -612,6 +654,7 @@ def main():
             profile=profile_name,
             proxy_config=proxy_config,
             notify_config=notify_config,
+            sudo_password=sudo_password,
         )
         scanner.run()
     except KeyboardInterrupt:

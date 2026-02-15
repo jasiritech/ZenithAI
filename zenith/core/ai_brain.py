@@ -16,18 +16,19 @@ class AIBrain:
     """
 
     # Model fallback chains - tries each until one works
+    # Tested & verified working as of Feb 2026
     MODEL_CHAINS = {
         "pro": [
             "gemini-2.5-pro",
-            "gemini-2.5-pro-preview-05-06",
             "gemini-2.5-flash",
             "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
         ],
         "flash": [
             "gemini-2.5-flash",
-            "gemini-2.5-flash-preview-04-17",
             "gemini-2.0-flash",
             "gemini-2.0-flash-lite",
+            "gemini-2.5-pro",
         ],
     }
 

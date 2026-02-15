@@ -231,7 +231,7 @@ def interactive_setup():
             goal = session_data.get("goal", "")
             model = session_data.get("model", "flash")
             max_iter = session_data.get("max_iterations", 100)
-            return api_key, target, goal, model, max_iter, None, None, None, resume_session
+            return api_key, target, goal, model, max_iter, None, None, None, None, resume_session
         else:
             print(f"  {Colors.RED}  [✗] Failed to load session. Starting new scan.{Colors.RESET}")
             resume_session = None

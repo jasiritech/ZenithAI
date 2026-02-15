@@ -142,20 +142,35 @@ class ZenithScanner:
         print()
 
     def _signal_handler(self, signum, frame):
-        """Handle Ctrl+C gracefully."""
-        print(f"\n\n  {Colors.YELLOW}[!] Ctrl+C detected - Stopping gracefully...{Colors.RESET}")
+        """Handle Ctrl+C gracefully - kills running command and exits."""
+        # Second Ctrl+C = force exit immediately
+        if not self.running:
+            print(f"\n  {Colors.RED}[!] Force exit!{Colors.RESET}")
+            # Kill any running subprocess
+            self.executor.kill_current()
+            os._exit(1)
+
+        print(f"\n\n  {Colors.YELLOW}[!] Ctrl+C detected - Stopping...{Colors.RESET}")
         self.running = False
+
+        # Kill the currently running command (nmap, nikto, etc.)
+        if self.executor.kill_current():
+            print(f"  {Colors.YELLOW}[!] Killed running command.{Colors.RESET}")
+
         # Save session for resume
-        self.session_mgr.mark_interrupted(self.session_id)
-        self.session_mgr.save_state(
-            self.session_id,
-            current_iteration=self.iteration,
-            current_phase=self.current_phase,
-            phase_iteration=self.phase_iteration,
-            working_dir=self.working_dir,
-            knowledge_base_file=self.kb.db_file,
-        )
-        Display.info(f"Session saved! Resume with: python3 zenith.py --resume {self.session_id}")
+        try:
+            self.session_mgr.mark_interrupted(self.session_id)
+            self.session_mgr.save_state(
+                self.session_id,
+                current_iteration=self.iteration,
+                current_phase=self.current_phase,
+                phase_iteration=self.phase_iteration,
+                working_dir=self.working_dir,
+                knowledge_base_file=self.kb.db_file,
+            )
+            Display.info(f"Session saved! Resume with: python3 zenith.py --resume {self.session_id}")
+        except Exception:
+            pass  # Don't crash on save failure during exit
 
     def run(self):
         """

@@ -33,11 +33,30 @@ class TerminalExecutor:
         self.command_history = []
         self.total_commands = 0
         self.failed_commands = 0
+        self.current_process = None  # Track running subprocess for Ctrl+C kill
         
         # Create working directory
         os.makedirs(working_dir, exist_ok=True)
         
         print(f"    [✓] Terminal Executor ready (workspace: {working_dir})")
+
+    def kill_current(self):
+        """Kill the currently running subprocess (called on Ctrl+C)."""
+        if self.current_process and self.current_process.poll() is None:
+            try:
+                if os.name != 'nt':
+                    os.killpg(os.getpgid(self.current_process.pid), signal.SIGTERM)
+                    # Give it 2 seconds, then SIGKILL
+                    try:
+                        self.current_process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(os.getpgid(self.current_process.pid), signal.SIGKILL)
+                else:
+                    self.current_process.kill()
+                return True
+            except (ProcessLookupError, OSError):
+                pass
+        return False
 
     def is_safe(self, command):
         """Check if command is safe to execute."""
@@ -49,17 +68,51 @@ class TerminalExecutor:
         
         return True, "OK"
 
-    def execute(self, command, timeout=300):
+    # Smart timeouts per command type (seconds)
+    COMMAND_TIMEOUTS = {
+        "nmap": 180,           # 3 minutes for normal nmap
+        "nmap -p-": 300,       # 5 minutes for full port scan (not forever)
+        "nmap -sV -p-": 300,   # 5 minutes max
+        "nikto": 180,
+        "sqlmap": 240,
+        "nuclei": 240,
+        "gobuster": 180,
+        "dirb": 180,
+        "ffuf": 180,
+        "hydra": 180,
+        "subfinder": 120,
+        "whatweb": 60,
+        "whois": 30,
+        "dig": 30,
+        "curl": 60,
+        "wget": 120,
+        "wpscan": 240,
+    }
+
+    def _get_smart_timeout(self, command):
+        """Get a smart timeout based on the command being run."""
+        cmd_lower = command.lower().strip()
+        # Check specific patterns first (longer matches)
+        for pattern in sorted(self.COMMAND_TIMEOUTS.keys(), key=len, reverse=True):
+            if pattern in cmd_lower:
+                return self.COMMAND_TIMEOUTS[pattern]
+        return 300  # Default 5 minutes
+
+    def execute(self, command, timeout=None):
         """
         Execute a Linux command and return the output.
         
         Args:
             command: The command to run
-            timeout: Max seconds to wait (default 5 minutes)
+            timeout: Max seconds to wait (auto-detected if None)
             
         Returns:
             dict: {"success": bool, "output": str, "error": str, "return_code": int, "duration": float}
         """
+        # Auto-detect smart timeout if not specified
+        if timeout is None:
+            timeout = self._get_smart_timeout(command)
+
         # Safety check
         is_safe, reason = self.is_safe(command)
         if not is_safe:
@@ -91,6 +144,7 @@ class TerminalExecutor:
                 env=env,
                 preexec_fn=os.setsid if os.name != 'nt' else None
             )
+            self.current_process = process  # Track for Ctrl+C kill
 
             try:
                 stdout, stderr = process.communicate(timeout=timeout)
@@ -117,6 +171,7 @@ class TerminalExecutor:
 
             duration = time.time() - start_time
             success = process.returncode == 0
+            self.current_process = None  # Clear - command finished
             
             if not success:
                 self.failed_commands += 1

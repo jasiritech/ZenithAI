@@ -1,0 +1,11 @@
+{
+    "_comment": "Zenith AI Scanner - Configuration File",
+    "_instructions": "Copy this file to scan_config.json and fill in your values",
+    
+    "api_key": "YOUR_GEMINI_API_KEY_HERE",
+    "target": "https://example.com",
+    "goal": "Find all security vulnerabilities including web vulnerabilities, misconfigurations, and exposed data",
+    "model": "flash",
+    "max_iterations": 100,
+    "output_dir": "/tmp/zenith_results"
+}

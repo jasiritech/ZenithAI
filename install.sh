@@ -44,15 +44,31 @@ echo -e "\n${CYAN}[2/5] Installing Python 3 & pip...${NC}"
 sudo apt-get install -y python3 python3-pip python3-venv 2>/dev/null || true
 
 # ═══════════════════════════════════════
-# STEP 3: Install Python dependencies
+# STEP 3: Create Python Virtual Environment & Install Dependencies
 # ═══════════════════════════════════════
-echo -e "\n${CYAN}[3/5] Installing Python packages...${NC}"
-pip3 install -r requirements.txt 2>/dev/null || pip install -r requirements.txt
+echo -e "\n${CYAN}[3/6] Setting up Python virtual environment...${NC}"
+
+VENV_DIR="$(pwd)/venv"
+
+if [ -d "$VENV_DIR" ]; then
+    echo -e "  ${GREEN}[✓]${NC} Virtual environment already exists"
+else
+    echo -e "  ${YELLOW}[*]${NC} Creating virtual environment..."
+    python3 -m venv "$VENV_DIR"
+    echo -e "  ${GREEN}[✓]${NC} Virtual environment created at: $VENV_DIR"
+fi
+
+# Activate venv and install packages
+echo -e "  ${YELLOW}[*]${NC} Activating venv and installing Python packages..."
+source "$VENV_DIR/bin/activate"
+pip install --upgrade pip 2>/dev/null || true
+pip install -r requirements.txt
+echo -e "  ${GREEN}[✓]${NC} Python packages installed in venv"
 
 # ═══════════════════════════════════════
 # STEP 4: Install common security tools
 # ═══════════════════════════════════════
-echo -e "\n${CYAN}[4/5] Installing security tools...${NC}"
+echo -e "\n${CYAN}[4/6] Installing security tools...${NC}"
 
 # Core tools
 TOOLS="nmap nikto sqlmap whatweb dirb gobuster hydra curl wget whois dnsutils net-tools"
@@ -67,7 +83,7 @@ for tool in $TOOLS; do
 done
 
 # Install Go-based tools (nuclei, subfinder, httpx)
-echo -e "\n  ${YELLOW}[*]${NC} Checking Go-based tools..."
+echo -e "\n  ${YELLOW}[*]${NC} Checking Go-based tools (step 5/6)..."
 if command -v go &> /dev/null; then
     echo -e "  ${GREEN}[✓]${NC} Go is installed"
     
@@ -100,15 +116,18 @@ else
 fi
 
 # ═══════════════════════════════════════
-# STEP 5: Setup permissions
+# STEP 6: Setup permissions
 # ═══════════════════════════════════════
-echo -e "\n${CYAN}[5/5] Setting up permissions...${NC}"
+echo -e "\n${CYAN}[6/6] Setting up permissions...${NC}"
 chmod +x zenith.py
 chmod +x install.sh
 chmod +x run.sh 2>/dev/null || true
 
 # Create workspace directory
 mkdir -p /tmp/zenith_workspace
+
+# Deactivate venv (user will activate it themselves)
+deactivate 2>/dev/null || true
 
 # ═══════════════════════════════════════
 # DONE!
@@ -118,20 +137,27 @@ echo -e "${GREEN}${BOLD}  ✓ ZENITH AI SCANNER - INSTALLATION COMPLETE!${NC}"
 echo -e "${GREEN}${BOLD}═══════════════════════════════════════════════════${NC}"
 echo ""
 echo -e "  ${CYAN}Quick Start:${NC}"
-echo -e "  ${BOLD}1.${NC} Set your API key:"
+echo -e "  ${BOLD}1.${NC} Activate the virtual environment:"
+echo -e "     ${YELLOW}source venv/bin/activate${NC}"
+echo ""
+echo -e "  ${BOLD}2.${NC} Set your API key:"
 echo -e "     ${YELLOW}export GEMINI_API_KEY='your-api-key-here'${NC}"
 echo ""
-echo -e "  ${BOLD}2.${NC} Run Zenith (interactive):"
+echo -e "  ${BOLD}3.${NC} Run Zenith (interactive):"
 echo -e "     ${YELLOW}python3 zenith.py${NC}"
 echo ""
-echo -e "  ${BOLD}3.${NC} Run Zenith (direct):"
-echo -e "     ${YELLOW}python3 zenith.py -t https://target.com${NC}"
+echo -e "  ${BOLD}4.${NC} Or use the quick run script (auto-activates venv):"
+echo -e "     ${YELLOW}./run.sh${NC}"
 echo ""
-echo -e "  ${BOLD}4.${NC} Run with config file:"
-echo -e "     ${YELLOW}cp config.example.json config.json${NC}"
-echo -e "     ${YELLOW}# Edit config.json with your settings${NC}"
-echo -e "     ${YELLOW}python3 zenith.py --config config.json${NC}"
+echo -e "  ${BOLD}5.${NC} Run with scan profile:"
+echo -e "     ${YELLOW}python3 zenith.py -t https://target.com -p web${NC}"
+echo ""
+echo -e "  ${BOLD}6.${NC} Run via Tor:"
+echo -e "     ${YELLOW}python3 zenith.py -t https://target.com --tor${NC}"
 echo ""
 echo -e "  ${CYAN}Get Gemini API Key:${NC}"
 echo -e "     ${YELLOW}https://aistudio.google.com/apikey${NC}"
+echo ""
+echo -e "  ${CYAN}Deactivate venv when done:${NC}"
+echo -e "     ${YELLOW}deactivate${NC}"
 echo ""

@@ -145,11 +145,19 @@ class CommandValidator:
 
     def _check_common_mistakes(self, command):
         """Check for common AI-generated command mistakes."""
-        # Check for placeholder values
-        placeholders = ["<target>", "<url>", "<ip>", "{target}", "{url}", "example.com", "TARGET_HERE"]
+        # Check for placeholder values (expanded list)
+        placeholders = [
+            "<target>", "<url>", "<ip>", "{target}", "{url}", "example.com", "TARGET_HERE",
+            "YOUR_", "CHANGEME", "REPLACE_", "INSERT_", "PASTE_", "PUT_",
+            "<token>", "{token}", "<cookie>", "{cookie}", "<password>", "{password}",
+            "TOKEN_HERE", "COOKIE_HERE", "PASSWORD_HERE", "API_KEY_HERE",
+            "your-", "your_token", "your_cookie", "your_session", "your_api",
+            "xxx", "yyy", "zzz",
+        ]
         for ph in placeholders:
             if ph.lower() in command.lower():
-                self.warnings.append(f"[WARNING] Possible placeholder in command: {ph}")
+                self.warnings.append(f"[BLOCKED] Placeholder value detected: '{ph}' - fetch REAL values first (use curl -c /tmp/cookies.txt)")
+                break  # One is enough
 
         # Check for very long timeouts in nmap
         if "nmap" in command and "-T5" in command:

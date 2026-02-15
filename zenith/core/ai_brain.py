@@ -154,6 +154,11 @@ RULES:
 - If you're stuck or a command fails, try a different approach
 - Think about what information you still need
 - Be thorough - check everything
+- NEVER use placeholder values like YOUR_TOKEN, YOUR_COOKIE, YOUR_PASSWORD etc.
+- If a command needs cookies/tokens, FIRST grab them with: curl -sk -c /tmp/cookies.txt -D /tmp/headers.txt TARGET_URL
+- Then use the REAL cookie file: --cookie /tmp/cookies.txt or --load-cookies /tmp/cookies.txt
+- For sqlmap with cookies use: sqlmap -u URL --cookie-jar /tmp/cookies.txt or extract cookies first
+- Always use curl to fetch REAL values before using them in subsequent commands
 
 RESPOND WITH THIS EXACT JSON FORMAT:
 {{

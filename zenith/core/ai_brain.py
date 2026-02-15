@@ -1,5 +1,6 @@
 """
-Zenith AI Brain - Gemini 2.5 Pro/Flash Integration
+Zenith AI Brain - Multi-Provider AI Integration
+Supports: Gemini (Google) and Groq (Fast & Free)
 This is the brain of the tool - it thinks, plans, and decides the next action.
 """
 
@@ -8,11 +9,22 @@ import json
 import time
 from datetime import datetime
 
+# Try to import Groq
+try:
+    from groq import Groq
+    GROQ_AVAILABLE = True
+except ImportError:
+    GROQ_AVAILABLE = False
+
 
 class AIBrain:
     """
-    AI Brain powered by Gemini 2.5 Pro/Flash for security scanning decisions.
+    AI Brain powered by Gemini or Groq for security scanning decisions.
     Thinks like a pentester - selects tools, reads results, finds new attack paths.
+    
+    Providers:
+    - Gemini (Google): Default, good quality
+    - Groq: FAST & FREE (14,400 requests/day!) - use key starting with 'gsk_'
     """
 
     # Model fallback chains - tries each until one works
@@ -33,32 +45,91 @@ class AIBrain:
             "gemini-2.5-pro",
         ],
     }
+    
+    # Groq models - FAST and FREE!
+    GROQ_MODELS = [
+        "llama-3.3-70b-versatile",    # Best quality
+        "llama-3.1-70b-versatile",    # Fallback
+        "llama-3.1-8b-instant",       # Fastest
+        "mixtral-8x7b-32768",         # Good alternative
+    ]
 
     # Keep for backward compat - points to first in chain
     SUPPORTED_MODELS = {
         "pro": "gemini-2.5-pro",
         "flash": "gemini-2.5-flash",
+        "groq": "llama-3.3-70b-versatile",
     }
 
     def __init__(self, api_key, model_choice="flash"):
         """
-        Initialize AI Brain with automatic model fallback.
+        Initialize AI Brain with automatic provider detection and model fallback.
         
         Args:
-            api_key: Gemini API key
-            model_choice: 'pro' for deep thinking, 'flash' for speed
+            api_key: API key (Gemini: AIza..., Groq: gsk_...)
+            model_choice: 'pro' for deep thinking, 'flash' for speed, 'groq' for Groq
         """
         if not api_key or api_key == "":
-            raise ValueError("[!] Gemini API Key is required! Please provide your API key.")
+            raise ValueError("[!] API Key is required! Please provide your API key.")
         
         self.api_key = api_key
-        genai.configure(api_key=api_key)
-        
         self.model_choice = model_choice
         self.total_tokens = 0
         self.call_count = 0
         self.consecutive_errors = 0
         self.max_consecutive_errors = 5
+        self.chat_history = []
+        
+        # Auto-detect provider based on key format
+        if api_key.startswith("gsk_") or model_choice == "groq":
+            self.provider = "groq"
+            self._init_groq(api_key)
+        else:
+            self.provider = "gemini"
+            self._init_gemini(api_key, model_choice)
+    
+    def _init_groq(self, api_key):
+        """Initialize Groq provider."""
+        if not GROQ_AVAILABLE:
+            raise ValueError(
+                "[!] Groq library not installed!\n"
+                "    Run: pip install groq\n"
+                "    Or: pip install -r requirements.txt"
+            )
+        
+        self.groq_client = Groq(api_key=api_key)
+        self.model = None
+        self.model_name = None
+        
+        for model_name in self.GROQ_MODELS:
+            try:
+                print(f"    [*] Trying Groq model: {model_name}...")
+                # Test the model
+                response = self.groq_client.chat.completions.create(
+                    model=model_name,
+                    messages=[{"role": "user", "content": "Reply with OK"}],
+                    max_tokens=10
+                )
+                _ = response.choices[0].message.content
+                
+                self.model_name = model_name
+                print(f"    [✓] AI Brain initialized: Groq/{model_name}")
+                print(f"    [💡] Groq FREE tier: 30 req/min, 14,400 req/day!")
+                break
+            except Exception as e:
+                err = str(e)
+                print(f"    [!] Groq model {model_name} failed: {err[:80]}")
+                continue
+        
+        if self.model_name is None:
+            raise ValueError(
+                "[!] No working Groq model found!\n"
+                "    Get your FREE API key at: https://console.groq.com/keys"
+            )
+    
+    def _init_gemini(self, api_key, model_choice):
+        """Initialize Gemini provider."""
+        genai.configure(api_key=api_key)
         
         # Try models in the fallback chain until one works
         chain = self.MODEL_CHAINS.get(model_choice, self.MODEL_CHAINS["flash"])
@@ -225,8 +296,12 @@ CRITICAL:
 
         try:
             self.call_count += 1
-            response = self.chat.send_message(prompt)
-            raw_text = response.text.strip()
+            
+            # Call the appropriate provider
+            if self.provider == "groq":
+                raw_text = self._call_groq(prompt)
+            else:
+                raw_text = self._call_gemini(prompt)
             
             # Clean up response - remove markdown code blocks if present
             if raw_text.startswith("```"):
@@ -339,6 +414,32 @@ CRITICAL:
                 "expected_outcome": "Basic port scan"
             }
 
+    def _call_groq(self, prompt):
+        """Call Groq API and return response text."""
+        # Add to chat history for context
+        self.chat_history.append({"role": "user", "content": prompt})
+        
+        # Keep only last 10 messages to avoid context overflow
+        if len(self.chat_history) > 20:
+            self.chat_history = self.chat_history[-20:]
+        
+        response = self.groq_client.chat.completions.create(
+            model=self.model_name,
+            messages=self.chat_history,
+            max_tokens=4096,
+            temperature=0.7,
+        )
+        
+        assistant_msg = response.choices[0].message.content
+        self.chat_history.append({"role": "assistant", "content": assistant_msg})
+        
+        return assistant_msg.strip()
+    
+    def _call_gemini(self, prompt):
+        """Call Gemini API and return response text."""
+        response = self.chat.send_message(prompt)
+        return response.text.strip()
+
     def _switch_api_key(self, new_api_key):
         """
         Switch to a new API key and reinitialize the model.
@@ -347,12 +448,16 @@ CRITICAL:
         try:
             print(f"    [*] Testing new API key: {new_api_key[:10]}...{new_api_key[-4:]}")
             
-            # Configure with new key
+            # Auto-detect provider for new key
+            if new_api_key.startswith("gsk_"):
+                return self._switch_to_groq(new_api_key)
+            
+            # Default to Gemini
             genai.configure(api_key=new_api_key)
             
             # Try to create a model and test it
             candidate = genai.GenerativeModel(
-                model_name=self.model_name,
+                model_name=self.model_name if self.provider == "gemini" else "gemini-2.5-flash",
                 generation_config={
                     "temperature": 0.7,
                     "top_p": 0.95,
@@ -373,15 +478,53 @@ CRITICAL:
             
             # Success! Update everything
             self.api_key = new_api_key
+            self.provider = "gemini"
             self.model = candidate
             self.chat = self.model.start_chat(history=[])
-            print(f"    [✓] New API key is working!")
+            print(f"    [✓] New Gemini API key is working!")
             return True
             
         except Exception as e:
             print(f"    [!] New API key failed: {str(e)[:100]}")
             # Revert to old key
-            genai.configure(api_key=self.api_key)
+            if self.provider == "gemini":
+                genai.configure(api_key=self.api_key)
+            return False
+    
+    def _switch_to_groq(self, new_api_key):
+        """Switch to Groq provider with new key."""
+        if not GROQ_AVAILABLE:
+            print("    [!] Groq library not installed. Run: pip install groq")
+            return False
+        
+        try:
+            new_client = Groq(api_key=new_api_key)
+            
+            # Test the key
+            for model_name in self.GROQ_MODELS:
+                try:
+                    response = new_client.chat.completions.create(
+                        model=model_name,
+                        messages=[{"role": "user", "content": "Reply with OK"}],
+                        max_tokens=10
+                    )
+                    _ = response.choices[0].message.content
+                    
+                    # Success!
+                    self.api_key = new_api_key
+                    self.provider = "groq"
+                    self.groq_client = new_client
+                    self.model_name = model_name
+                    self.chat_history = []
+                    print(f"    [✓] Switched to Groq/{model_name}!")
+                    return True
+                except:
+                    continue
+            
+            print("    [!] Groq key failed on all models")
+            return False
+        except Exception as e:
+            print(f"    [!] Groq switch failed: {str(e)[:80]}")
             return False
 
     def _try_switch_model(self):
@@ -461,8 +604,12 @@ Create a comprehensive security report in this JSON format:
 Output ONLY the JSON object.
 """
         try:
-            response = self.model.generate_content(prompt)
-            raw_text = response.text.strip()
+            # Call appropriate provider
+            if self.provider == "groq":
+                raw_text = self._call_groq(prompt)
+            else:
+                response = self.model.generate_content(prompt)
+                raw_text = response.text.strip()
             
             if raw_text.startswith("```"):
                 raw_text = raw_text.split("\n", 1)[1] if "\n" in raw_text else raw_text[3:]
@@ -480,6 +627,7 @@ Output ONLY the JSON object.
     def get_stats(self):
         """Return AI usage statistics."""
         return {
+            "provider": self.provider.upper(),
             "model": self.model_name,
             "total_calls": self.call_count,
         }

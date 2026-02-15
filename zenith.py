@@ -24,81 +24,122 @@ from zenith.core.scanner import ZenithScanner
 from zenith.utils.display import Display, Colors
 
 
-def interactive_setup():
-    """Interactive setup - asks the user questions and starts the scan."""
-    
-    Display.banner()
-    Display.section("INTERACTIVE SETUP")
+def clear_screen():
+    """Clear the terminal screen."""
+    os.system('cls' if os.name == 'nt' else 'clear')
 
-    # ─── API KEY ───
-    print(f"  {Colors.CYAN}[1/4] Gemini API Key{Colors.RESET}")
-    print(f"  {Colors.DIM}Get your API key here: https://aistudio.google.com/apikey{Colors.RESET}")
+
+def interactive_setup():
+    """Simple interactive setup - API key, target, and go."""
     
+    clear_screen()
+    
+    # ═══════════════════════════════════════
+    # BANNER
+    # ═══════════════════════════════════════
+    print(f"""
+{Colors.CYAN}{Colors.BOLD}
+ ███████╗███████╗███╗   ██╗██╗████████╗██╗  ██╗     █████╗ ██╗
+ ╚══███╔╝██╔════╝████╗  ██║██║╚══██╔══╝██║  ██║    ██╔══██╗██║
+   ███╔╝ █████╗  ██╔██╗ ██║██║   ██║   ███████║    ███████║██║
+  ███╔╝  ██╔══╝  ██║╚██╗██║██║   ██║   ██╔══██║    ██╔══██║██║
+ ███████╗███████╗██║ ╚████║██║   ██║   ██║  ██║    ██║  ██║██║
+ ╚══════╝╚══════╝╚═╝  ╚═══╝╚═╝   ╚═╝   ╚═╝  ╚═╝    ╚═╝  ╚═╝
+{Colors.RESET}
+{Colors.YELLOW}  ⚡ Autonomous AI-Powered Security Scanner v2.0{Colors.RESET}
+{Colors.DIM}  ─────────────────────────────────────────────────────{Colors.RESET}
+{Colors.CYAN}  Powered by Gemini 2.5 Pro/Flash  │  Fully Autonomous{Colors.RESET}
+{Colors.DIM}  ─────────────────────────────────────────────────────{Colors.RESET}
+""")
+
+    # ═══════════════════════════════════════
+    # STEP 1: API KEY
+    # ═══════════════════════════════════════
+    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
+    print(f"  {Colors.CYAN}{Colors.BOLD}  🔑  GEMINI API KEY{Colors.RESET}")
+    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
+    print(f"  {Colors.DIM}  Get yours free: https://aistudio.google.com/apikey{Colors.RESET}")
+    print()
+
     # Check environment variable first
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if api_key:
-        print(f"  {Colors.GREEN}[✓] API key found in environment variable GEMINI_API_KEY{Colors.RESET}")
-        use_env = input(f"  {Colors.YELLOW}Use this key? (y/n): {Colors.RESET}").strip().lower()
-        if use_env != 'y':
+        masked = api_key[:8] + "..." + api_key[-4:]
+        print(f"  {Colors.GREEN}  [✓] Found API key: {masked}{Colors.RESET}")
+        use_env = input(f"\n  {Colors.YELLOW}  Use this key? [Y/n]: {Colors.RESET}").strip().lower()
+        if use_env == 'n':
             api_key = ""
     
     if not api_key:
-        api_key = getpass.getpass(f"  {Colors.YELLOW}Enter Gemini API Key: {Colors.RESET}")
+        api_key = input(f"\n  {Colors.YELLOW}  Enter API Key: {Colors.RESET}").strip()
     
     if not api_key:
-        print(f"  {Colors.RED}[!] API key is required!{Colors.RESET}")
+        print(f"\n  {Colors.RED}  [✗] API key is required!{Colors.RESET}")
         sys.exit(1)
 
-    # ─── MODEL ───
-    print(f"\n  {Colors.CYAN}[2/4] Choose AI Model{Colors.RESET}")
-    print(f"  {Colors.DIM}  1. Gemini 2.5 Flash (fast, recommended){Colors.RESET}")
-    print(f"  {Colors.DIM}  2. Gemini 2.5 Pro (deep thinking, slower){Colors.RESET}")
+    # ═══════════════════════════════════════
+    # STEP 2: TARGET
+    # ═══════════════════════════════════════
+    print(f"\n  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
+    print(f"  {Colors.CYAN}{Colors.BOLD}  🎯  TARGET{Colors.RESET}")
+    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
+    print(f"  {Colors.DIM}  Example: https://example.com or 192.168.1.1{Colors.RESET}")
+    print()
     
-    model_choice = input(f"  {Colors.YELLOW}Choose (1/2) [default: 1]: {Colors.RESET}").strip()
-    model = "pro" if model_choice == "2" else "flash"
-
-    # ─── TARGET ───
-    print(f"\n  {Colors.CYAN}[3/4] Target{Colors.RESET}")
-    target = input(f"  {Colors.YELLOW}Enter target (URL or IP): {Colors.RESET}").strip()
+    target = input(f"  {Colors.YELLOW}  Enter target: {Colors.RESET}").strip()
     
     if not target:
-        print(f"  {Colors.RED}[!] Target is required!{Colors.RESET}")
+        print(f"\n  {Colors.RED}  [✗] Target is required!{Colors.RESET}")
         sys.exit(1)
 
-    # ─── GOAL ───
-    print(f"\n  {Colors.CYAN}[4/4] Goal (Optional){Colors.RESET}")
-    print(f"  {Colors.DIM}Example: 'Find all web vulnerabilities', 'Check for SQL injection'{Colors.RESET}")
-    print(f"  {Colors.DIM}Press Enter for default (full vulnerability scan){Colors.RESET}")
+    # ═══════════════════════════════════════
+    # STEP 3: GOAL (optional, with default)
+    # ═══════════════════════════════════════
+    print(f"\n  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
+    print(f"  {Colors.CYAN}{Colors.BOLD}  📋  GOAL {Colors.DIM}(optional - press Enter to skip){Colors.RESET}")
+    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
+    print(f"  {Colors.DIM}  Example: Find SQL injection, Check for XSS, etc.{Colors.RESET}")
+    print()
     
-    goal = input(f"  {Colors.YELLOW}Goal: {Colors.RESET}").strip()
+    goal = input(f"  {Colors.YELLOW}  Goal [full scan]: {Colors.RESET}").strip()
     
     if not goal:
         goal = f"Perform a comprehensive security assessment on {target}. Find all vulnerabilities including web vulnerabilities, misconfigurations, exposed sensitive data, and any security weaknesses. Be thorough and systematic."
 
-    # ─── MAX ITERATIONS ───
-    print(f"\n  {Colors.DIM}Advanced: Max iterations (default: 100, max: 200){Colors.RESET}")
-    max_iter_input = input(f"  {Colors.YELLOW}Max iterations [100]: {Colors.RESET}").strip()
-    try:
-        max_iterations = min(int(max_iter_input), 200) if max_iter_input else 100
-    except ValueError:
-        max_iterations = 100
+    # ═══════════════════════════════════════
+    # STEP 4: MODEL SELECTION
+    # ═══════════════════════════════════════
+    print(f"\n  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
+    print(f"  {Colors.CYAN}{Colors.BOLD}  🧠  AI MODEL{Colors.RESET}")
+    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
+    print(f"  {Colors.GREEN}  [1]{Colors.RESET} Gemini 2.5 Flash  {Colors.DIM}(fast, recommended){Colors.RESET}")
+    print(f"  {Colors.MAGENTA}  [2]{Colors.RESET} Gemini 2.5 Pro    {Colors.DIM}(deep thinking, slower){Colors.RESET}")
+    print()
+    
+    model_choice = input(f"  {Colors.YELLOW}  Choose [1]: {Colors.RESET}").strip()
+    model = "pro" if model_choice == "2" else "flash"
 
-    # ─── CONFIRM ───
-    print(f"\n  {Colors.CYAN}{'─' * 50}{Colors.RESET}")
-    print(f"  {Colors.BOLD}Configuration Summary:{Colors.RESET}")
-    print(f"  {Colors.DIM}Target:{Colors.RESET}     {target}")
-    print(f"  {Colors.DIM}Model:{Colors.RESET}      Gemini 2.5 {'Pro' if model == 'pro' else 'Flash'}")
-    print(f"  {Colors.DIM}Goal:{Colors.RESET}       {goal[:60]}...")
-    print(f"  {Colors.DIM}Max Iter:{Colors.RESET}   {max_iterations}")
-    print(f"  {Colors.CYAN}{'─' * 50}{Colors.RESET}")
+    # ═══════════════════════════════════════
+    # CONFIRM & LAUNCH
+    # ═══════════════════════════════════════
+    model_display = f"{Colors.MAGENTA}Gemini 2.5 Pro{Colors.RESET}" if model == "pro" else f"{Colors.GREEN}Gemini 2.5 Flash{Colors.RESET}"
     
-    confirm = input(f"\n  {Colors.YELLOW}Start scan? (y/n): {Colors.RESET}").strip().lower()
+    print(f"\n  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
+    print(f"  {Colors.CYAN}{Colors.BOLD}  🚀  READY TO LAUNCH{Colors.RESET}")
+    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
+    print(f"  {Colors.BOLD}  Target:{Colors.RESET}  {target}")
+    print(f"  {Colors.BOLD}  Model:{Colors.RESET}   {model_display}")
+    print(f"  {Colors.BOLD}  Goal:{Colors.RESET}    {goal[:50]}...")
+    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
+    print()
     
-    if confirm != 'y':
-        print(f"  {Colors.RED}Scan cancelled.{Colors.RESET}")
+    confirm = input(f"  {Colors.YELLOW}{Colors.BOLD}  Launch scan? [Y/n]: {Colors.RESET}").strip().lower()
+    
+    if confirm == 'n':
+        print(f"\n  {Colors.RED}  Scan cancelled.{Colors.RESET}")
         sys.exit(0)
 
-    return api_key, target, goal, model, max_iterations
+    return api_key, target, goal, model, 100
 
 
 def parse_args():
@@ -157,7 +198,7 @@ def main():
     elif args.target:
         api_key = args.api_key or os.environ.get('GEMINI_API_KEY', '')
         if not api_key:
-            api_key = getpass.getpass("Enter Gemini API Key: ")
+            api_key = input("Enter Gemini API Key: ").strip()
         target = args.target
         goal = args.goal or f"Perform a comprehensive security assessment on {target}"
         model = args.model

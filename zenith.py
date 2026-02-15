@@ -200,15 +200,37 @@ def interactive_setup():
         print()
 
     # ═══════════════════════════════════════
-    # STEP 1: API KEY
+    # STEP 1: CHOOSE AI PROVIDER
     # ═══════════════════════════════════════
     print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-    print(f"  {Colors.CYAN}{Colors.BOLD}  🔑  GEMINI API KEY{Colors.RESET}")
+    print(f"  {Colors.CYAN}{Colors.BOLD}  🤖  SELECT AI PROVIDER{Colors.RESET}")
     print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-    print(f"  {Colors.DIM}  Get yours free: https://aistudio.google.com/apikey{Colors.RESET}")
+    print()
+    print(f"  {Colors.YELLOW}  [1] Gemini (Google)  - 1,500 req/day free{Colors.RESET}")
+    print(f"  {Colors.GREEN}  [2] Groq (FAST!)     - 14,400 req/day FREE ⭐{Colors.RESET}")
+    print()
+    
+    provider_choice = input(f"  {Colors.YELLOW}  Choose [1/2] (default: 2 for Groq): {Colors.RESET}").strip()
+    
+    if provider_choice == "1":
+        provider = "gemini"
+        env_var = "GEMINI_API_KEY"
+        key_url = "https://aistudio.google.com/apikey"
+        key_prefix = "AIza"
+    else:
+        provider = "groq"
+        env_var = "GROQ_API_KEY"
+        key_url = "https://console.groq.com/keys"
+        key_prefix = "gsk_"
+    
+    print()
+    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
+    print(f"  {Colors.CYAN}{Colors.BOLD}  🔑  {provider.upper()} API KEY{Colors.RESET}")
+    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
+    print(f"  {Colors.DIM}  Get yours free: {key_url}{Colors.RESET}")
     print()
 
-    api_key = os.environ.get("GEMINI_API_KEY", "")
+    api_key = os.environ.get(env_var, "") or os.environ.get("GEMINI_API_KEY", "")
     if api_key:
         masked = api_key[:8] + "..." + api_key[-4:]
         print(f"  {Colors.GREEN}  [✓] Found API key: {masked}{Colors.RESET}")
@@ -217,7 +239,7 @@ def interactive_setup():
             api_key = ""
 
     if not api_key:
-        api_key = input(f"\n  {Colors.YELLOW}  Enter API Key: {Colors.RESET}").strip()
+        api_key = input(f"\n  {Colors.YELLOW}  Enter {provider.upper()} API Key: {Colors.RESET}").strip()
 
     if not api_key:
         print(f"\n  {Colors.RED}  [✗] API key is required!{Colors.RESET}")
@@ -438,9 +460,9 @@ Profiles: quick, full, stealth, web, network, api, recon-only
     )
 
     parser.add_argument('-t', '--target', help='Target URL, IP address, or domain')
-    parser.add_argument('-k', '--api-key', help='Gemini API key (or set GEMINI_API_KEY env var)')
-    parser.add_argument('-m', '--model', choices=['pro', 'flash'], default='flash',
-                       help='AI model: pro (deep thinking) or flash (fast)')
+    parser.add_argument('-k', '--api-key', help='API key (Gemini: AIza... or Groq: gsk_...)')
+    parser.add_argument('-m', '--model', choices=['pro', 'flash', 'groq'], default='flash',
+                       help='AI model: pro (Gemini deep), flash (Gemini fast), groq (Groq - FAST & FREE!)')
     parser.add_argument('-g', '--goal', help='Scanning goal description')
     parser.add_argument('-p', '--profile',
                        choices=['quick', 'full', 'stealth', 'web', 'network', 'api', 'recon-only'],
@@ -509,9 +531,14 @@ def main():
     # RESUME MODE
     # ═══════════════════════════════════════
     if args.resume:
-        api_key = args.api_key or os.environ.get('GEMINI_API_KEY', '')
+        api_key = args.api_key or os.environ.get('GROQ_API_KEY', '') or os.environ.get('GEMINI_API_KEY', '')
         if not api_key:
-            api_key = input("  Enter Gemini API Key: ").strip()
+            print(f"  {Colors.CYAN}[1] Gemini  [2] Groq (recommended){Colors.RESET}")
+            p = input("  Provider [1/2]: ").strip()
+            if p == "1":
+                api_key = input("  Enter Gemini API Key: ").strip()
+            else:
+                api_key = input("  Enter Groq API Key (gsk_...): ").strip()
         if not api_key:
             print(f"  {Colors.RED}[!] API key required to resume!{Colors.RESET}")
             sys.exit(1)
@@ -564,9 +591,14 @@ def main():
     # CLI MODE
     # ═══════════════════════════════════════
     elif args.target:
-        api_key = args.api_key or os.environ.get('GEMINI_API_KEY', '')
+        api_key = args.api_key or os.environ.get('GROQ_API_KEY', '') or os.environ.get('GEMINI_API_KEY', '')
         if not api_key:
-            api_key = input("  Enter Gemini API Key: ").strip()
+            print(f"  {Colors.CYAN}[1] Gemini  [2] Groq (recommended){Colors.RESET}")
+            p = input("  Provider [1/2]: ").strip()
+            if p == "1":
+                api_key = input("  Enter Gemini API Key: ").strip()
+            else:
+                api_key = input("  Enter Groq API Key (gsk_...): ").strip()
         target = args.target
         model = args.model
         max_iterations = min(args.max_iterations, 200)
@@ -626,8 +658,8 @@ def main():
     # VALIDATE
     # ═══════════════════════════════════════
     if not api_key:
-        print(f"  {Colors.RED}[!] Gemini API key is required!{Colors.RESET}")
-        print(f"  {Colors.DIM}Set GEMINI_API_KEY environment variable or use -k flag{Colors.RESET}")
+        print(f"  {Colors.RED}[!] API key is required!{Colors.RESET}")
+        print(f"  {Colors.DIM}Set GROQ_API_KEY or GEMINI_API_KEY env var, or use -k flag{Colors.RESET}")
         sys.exit(1)
 
     if not target:

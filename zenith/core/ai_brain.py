@@ -4,10 +4,17 @@ Supports: Gemini (Google) and Groq (Fast & Free)
 This is the brain of the tool - it thinks, plans, and decides the next action.
 """
 
-import google.generativeai as genai
 import json
 import time
 from datetime import datetime
+
+# Try to import Gemini
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    genai = None
+    GEMINI_AVAILABLE = False
 
 # Try to import Groq
 try:
@@ -134,6 +141,12 @@ class AIBrain:
     
     def _init_gemini(self, api_key, model_choice):
         """Initialize Gemini provider."""
+        if not GEMINI_AVAILABLE:
+            raise ValueError(
+                "[!] Google Generative AI library not installed!\n"
+                "    Run: pip install google-generativeai\n"
+                "    Or: pip install -r requirements.txt"
+            )
         genai.configure(api_key=api_key)
         
         # Try models in the fallback chain until one works

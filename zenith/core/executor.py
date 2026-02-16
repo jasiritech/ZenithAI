@@ -72,30 +72,36 @@ class TerminalExecutor:
         
         return True, "OK"
 
-    # AGGRESSIVE timeouts - we don't wait forever! (seconds)
+    # Generous timeouts - let commands finish properly (seconds)
     COMMAND_TIMEOUTS = {
-        "nmap -p-": 120,       # 2 min MAX - should use --top-ports instead
-        "nmap -sV -p-": 120,   # 2 min MAX - too slow, AI should avoid
-        "nmap": 90,            # 1.5 min for normal nmap
-        "nikto": 90,           # 1.5 min - slow scanner, prefer nuclei
-        "sqlmap": 120,         # 2 min - should use --threads and --batch
-        "nuclei": 120,         # 2 min - good scanner, fast
-        "gobuster": 90,        # 1.5 min - prefer ffuf
-        "dirb": 90,            # 1.5 min - slow, prefer ffuf
-        "ffuf": 90,            # 1.5 min - fast fuzzer
-        "hydra": 120,          # 2 min - brute force
-        "subfinder": 60,       # 1 min - fast subdomain
-        "whatweb": 30,         # 30 sec - quick fingerprint
-        "whois": 15,           # 15 sec - instant
-        "dig": 15,             # 15 sec - instant
-        "curl": 30,            # 30 sec - quick request
-        "wget": 60,            # 1 min - download
-        "wpscan": 120,         # 2 min - wordpress scan
-        "httpx": 60,           # 1 min - http probe
-        "wafw00f": 30,         # 30 sec - WAF detect
-        "wfuzz": 90,           # 1.5 min - fuzzer
-        "amass": 120,          # 2 min - subdomain
-        "masscan": 60,         # 1 min - fast port scan
+        "nmap -p-": 600,       # 10 min - full port scan takes time
+        "nmap -sV -p-": 600,   # 10 min - version detection + all ports
+        "nmap": 300,           # 5 min - normal nmap
+        "nikto": 300,          # 5 min - web scanner
+        "sqlmap": 600,         # 10 min - SQL injection testing
+        "nuclei": 600,         # 10 min - multi-vuln scanner
+        "gobuster": 300,       # 5 min - directory bruteforce
+        "dirb": 300,           # 5 min - directory bruteforce
+        "ffuf": 300,           # 5 min - fast fuzzer
+        "hydra": 600,          # 10 min - brute force
+        "subfinder": 180,      # 3 min - subdomain finder
+        "whatweb": 60,         # 1 min - quick fingerprint
+        "whois": 30,           # 30 sec - quick lookup
+        "dig": 30,             # 30 sec - DNS lookup
+        "curl": 60,            # 1 min - HTTP request
+        "wget": 180,           # 3 min - download
+        "wpscan": 600,         # 10 min - wordpress deep scan
+        "httpx": 180,          # 3 min - http probe
+        "wafw00f": 60,         # 1 min - WAF detect
+        "wfuzz": 300,          # 5 min - fuzzer
+        "amass": 600,          # 10 min - subdomain enum
+        "masscan": 180,        # 3 min - fast port scan
+        "testssl": 300,        # 5 min - SSL/TLS testing
+        "sslscan": 120,        # 2 min - SSL scan
+        "enum4linux": 300,     # 5 min - SMB enum
+        "dnsenum": 180,        # 3 min - DNS enum
+        "fierce": 180,         # 3 min - DNS recon
+        "searchsploit": 30,    # 30 sec - exploit search
     }
 
     def _get_smart_timeout(self, command):
@@ -105,7 +111,7 @@ class TerminalExecutor:
         for pattern in sorted(self.COMMAND_TIMEOUTS.keys(), key=len, reverse=True):
             if pattern in cmd_lower:
                 return self.COMMAND_TIMEOUTS[pattern]
-        return 90  # Default 1.5 minutes - be aggressive!
+        return 300  # Default 5 minutes - let commands finish
 
     def _wrap_sudo(self, command):
         """

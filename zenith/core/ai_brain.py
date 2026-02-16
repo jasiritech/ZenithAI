@@ -361,6 +361,8 @@ FORMAT 3 - Done:
 10. Chain operations: extract -> analyze -> test in ONE script
 """
         return prompt
+
+    def think(self, target, goal, knowledge_base, last_command="", last_output="", phase="recon"):
         """
         AI thinks and decides the next action to take.
         

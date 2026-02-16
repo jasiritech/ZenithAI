@@ -198,11 +198,11 @@ class ZenithScanner:
         print()
         
         # Vulnerability counts by severity
-        print(f"  {Colors.RED}  🔴 CRITICAL: {vuln_counts.get('critical', 0)}{Colors.RESET}")
-        print(f"  {Colors.YELLOW}  🟠 HIGH:     {vuln_counts.get('high', 0)}{Colors.RESET}")
-        print(f"  {Colors.YELLOW}  🟡 MEDIUM:   {vuln_counts.get('medium', 0)}{Colors.RESET}")
-        print(f"  {Colors.GREEN}  🟢 LOW:      {vuln_counts.get('low', 0)}{Colors.RESET}")
-        print(f"  {Colors.DIM}  ⚪ INFO:     {vuln_counts.get('info', 0)}{Colors.RESET}")
+        print(f"  {Colors.RED}  🔴 CRITICAL: {vuln_counts.get('CRITICAL', 0)}{Colors.RESET}")
+        print(f"  {Colors.YELLOW}  🟠 HIGH:     {vuln_counts.get('HIGH', 0)}{Colors.RESET}")
+        print(f"  {Colors.YELLOW}  🟡 MEDIUM:   {vuln_counts.get('MEDIUM', 0)}{Colors.RESET}")
+        print(f"  {Colors.GREEN}  🟢 LOW:      {vuln_counts.get('LOW', 0)}{Colors.RESET}")
+        print(f"  {Colors.DIM}  ⚪ INFO:     {vuln_counts.get('INFO', 0)}{Colors.RESET}")
         print()
         print(f"  {Colors.BOLD}  TOTAL: {total_vulns} vulnerabilities{Colors.RESET}")
         print()

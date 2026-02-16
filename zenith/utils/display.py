@@ -46,7 +46,7 @@ class Display:
 {Colors.RESET}
 {Colors.YELLOW}  ⚡ Autonomous AI-Powered Security Scanner v2.0{Colors.RESET}
 {Colors.DIM}  ─────────────────────────────────────────────────{Colors.RESET}
-{Colors.CYAN}  Model: Gemini 2.5 Pro/Flash  │  Engine: Autonomous AI Agent{Colors.RESET}
+{Colors.CYAN}  AI: Gemini / Groq  │  Engine: Autonomous AI Agent{Colors.RESET}
 {Colors.DIM}  ─────────────────────────────────────────────────{Colors.RESET}
 """
         print(banner_text)

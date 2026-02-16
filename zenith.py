@@ -163,7 +163,7 @@ def interactive_setup():
 {Colors.RESET}
 {Colors.YELLOW}  ⚡ Autonomous AI-Powered Security Scanner v2.0{Colors.RESET}
 {Colors.DIM}  ─────────────────────────────────────────────────────{Colors.RESET}
-{Colors.CYAN}  Model: Gemini 2.5 Pro/Flash  │  Engine: Autonomous AI Agent{Colors.RESET}
+{Colors.CYAN}  AI: Gemini / Groq  │  Engine: Autonomous AI Agent{Colors.RESET}
 {Colors.DIM}  ─────────────────────────────────────────────────────{Colors.RESET}
 """)
 
@@ -251,8 +251,12 @@ def interactive_setup():
         if session_data:
             target = session_data.get("target", "")
             goal = session_data.get("goal", "")
-            model = session_data.get("model", "flash")
             max_iter = session_data.get("max_iterations", 100)
+            # Use provider user JUST selected, not the saved model
+            if provider == "groq":
+                model = "groq"
+            else:
+                model = "flash"  # Default to flash for Gemini
             return api_key, target, goal, model, max_iter, None, None, None, None, resume_session
         else:
             print(f"  {Colors.RED}  [✗] Failed to load session. Starting new scan.{Colors.RESET}")
@@ -418,7 +422,12 @@ def interactive_setup():
     # ═══════════════════════════════════════
     # CONFIRM & LAUNCH
     # ═══════════════════════════════════════
-    model_display = f"{Colors.MAGENTA}Gemini 2.5 Pro{Colors.RESET}" if model == "pro" else f"{Colors.GREEN}Gemini 2.5 Flash{Colors.RESET}"
+    if model == "groq" or (api_key and api_key.startswith("gsk_")):
+        model_display = f"{Colors.GREEN}Groq (llama-3.3-70b) ⚡{Colors.RESET}"
+    elif model == "pro":
+        model_display = f"{Colors.MAGENTA}Gemini 2.5 Pro{Colors.RESET}"
+    else:
+        model_display = f"{Colors.GREEN}Gemini 2.5 Flash{Colors.RESET}"
     profile_display = profile_name or "custom"
     proxy_display = proxy_config["type"] if proxy_config else "none"
 
@@ -556,12 +565,18 @@ def main():
 
         sudo_password = get_sudo_password(args)
 
+        # Detect model from API key, not saved session (key format = truth)
+        if api_key.startswith("gsk_"):
+            resume_model = "groq"
+        else:
+            resume_model = "flash"
+
         try:
             scanner = ZenithScanner(
                 api_key=api_key,
                 target=session_data.get("target", ""),
                 goal=session_data.get("goal", ""),
-                model=session_data.get("model", "flash"),
+                model=resume_model,
                 max_iterations=session_data.get("max_iterations", 100),
                 resume_session=args.resume,
                 proxy_config=build_proxy_config(args),

@@ -35,40 +35,96 @@ def _check_and_install_deps():
     
     try:
         import google.generativeai
-    except ImportError:
+    except (ImportError, ModuleNotFoundError):
         missing.append(("google-generativeai", "Gemini"))
     
     try:
         import groq
-    except ImportError:
+    except (ImportError, ModuleNotFoundError):
         missing.append(("groq", "Groq"))
     
     if not missing:
-        return  # All good!
+        return True  # All good!
     
     # At least one library is missing
     missing_names = [m[0] for m in missing]
     print(f"\n  \033[93m[⚠] Missing AI libraries: {', '.join(missing_names)}\033[0m")
-    print(f"  \033[2m  Auto-installing now...\033[0m\n")
+    print(f"  \033[93m    Auto-installing now (this only happens once)...\033[0m\n")
     
+    installed = []
     for pkg, label in missing:
         try:
             print(f"  \033[94m[*] Installing {pkg} ({label} support)...\033[0m")
-            subprocess.check_call(
+            # Show ALL output so user can see what's happening
+            result = subprocess.run(
                 [sys.executable, "-m", "pip", "install", pkg],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                timeout=120
+                capture_output=True, text=True, timeout=180
             )
-            print(f"  \033[92m[✓] {pkg} installed successfully!\033[0m")
-        except subprocess.CalledProcessError as e:
-            print(f"  \033[91m[✗] Failed to install {pkg}: {e}\033[0m")
-            print(f"  \033[2m  Try manually: pip install {pkg}\033[0m")
+            if result.returncode == 0:
+                print(f"  \033[92m[✓] {pkg} installed successfully!\033[0m")
+                installed.append(pkg)
+            else:
+                print(f"  \033[91m[✗] pip install {pkg} failed (exit code {result.returncode})\033[0m")
+                # Show the actual error
+                err_output = (result.stderr or result.stdout or "unknown error")[-300:]
+                print(f"  \033[2m    {err_output}\033[0m")
         except subprocess.TimeoutExpired:
             print(f"  \033[91m[✗] Install timed out for {pkg}\033[0m")
-            print(f"  \033[2m  Try manually: pip install {pkg}\033[0m")
+        except FileNotFoundError:
+            print(f"  \033[91m[✗] pip not found! Install pip first.\033[0m")
+            break
+        except Exception as e:
+            print(f"  \033[91m[✗] Install error: {e}\033[0m")
     
-    print()
+    # Also try pip3 if pip failed
+    if not installed:
+        print(f"\n  \033[93m[*] Retrying with pip3...\033[0m")
+        for pkg, label in missing:
+            try:
+                result = subprocess.run(
+                    ["pip3", "install", pkg],
+                    capture_output=True, text=True, timeout=180
+                )
+                if result.returncode == 0:
+                    print(f"  \033[92m[✓] {pkg} installed via pip3!\033[0m")
+                    installed.append(pkg)
+                else:
+                    err = (result.stderr or "")[-200:]
+                    print(f"  \033[91m[✗] pip3 also failed: {err}\033[0m")
+            except Exception:
+                pass
+    
+    # Verify at least ONE library works now
+    have_any = False
+    try:
+        import importlib
+        try:
+            importlib.import_module("groq")
+            have_any = True
+        except (ImportError, ModuleNotFoundError):
+            pass
+        try:
+            importlib.import_module("google.generativeai")
+            have_any = True
+        except (ImportError, ModuleNotFoundError):
+            pass
+    except Exception:
+        pass
+    
+    if not have_any:
+        print(f"\n  \033[91m{'='*55}\033[0m")
+        print(f"  \033[91m  FAILED: Could not install any AI library!\033[0m")
+        print(f"  \033[91m{'='*55}\033[0m")
+        print(f"  \033[93m  Please run ONE of these commands manually:\033[0m")
+        print(f"  \033[92m    pip install groq                    # FREE & fast\033[0m")
+        print(f"  \033[92m    pip install google-generativeai     # Google Gemini\033[0m")
+        print(f"  \033[92m    pip install -r requirements.txt     # Both\033[0m")
+        print(f"  \033[93m  Then run: python3 zenith.py\033[0m")
+        print(f"  \033[91m{'='*55}\033[0m\n")
+        sys.exit(1)
+    
+    print(f"\n  \033[92m[✓] Dependencies ready! Starting ZenithAI...\033[0m\n")
+    return True
 
 # Run dependency check BEFORE importing our modules
 _check_and_install_deps()

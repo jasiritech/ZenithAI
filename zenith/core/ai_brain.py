@@ -387,11 +387,25 @@ FORMAT 3 - Done:
                 raw_text = self._call_gemini(prompt)
             
             # Clean up response - remove markdown code blocks if present
-            if raw_text.startswith("```"):
-                raw_text = raw_text.split("\n", 1)[1] if "\n" in raw_text else raw_text[3:]
-            if raw_text.endswith("```"):
-                raw_text = raw_text[:-3]
+            # Handle ```json ... ``` and ``` ... ``` blocks
+            import re as _re
+            # Strip all ```...``` code fences (greedy inner match)
+            if "```" in raw_text:
+                code_block = _re.search(r'```(?:json)?\s*\n?(.*?)\n?```', raw_text, _re.DOTALL)
+                if code_block:
+                    raw_text = code_block.group(1)
+                else:
+                    # Partial fence - strip prefix/suffix
+                    if raw_text.startswith("```"):
+                        raw_text = raw_text.split("\n", 1)[1] if "\n" in raw_text else raw_text[3:]
+                    if raw_text.endswith("```"):
+                        raw_text = raw_text[:-3]
             raw_text = raw_text.strip()
+            # If there's text before the JSON object, strip it
+            if raw_text and not raw_text.startswith("{"):
+                json_start = raw_text.find("{")
+                if json_start > 0:
+                    raw_text = raw_text[json_start:]
             
             # Parse JSON - fix invalid escape sequences from AI
             def _fix_json_escapes(text):

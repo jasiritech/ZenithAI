@@ -317,7 +317,18 @@ class TerminalExecutor:
             # Detect tool not found 
             if "not found" in all_output_lower and ("command not found" in all_output_lower or "/bin/sh" in all_output_lower or "no such file" in all_output_lower):
                 tool_name = command.split()[0] if command.split() else "unknown"
-                output_enhanced += f"\n⚠️ Tool '{tool_name}' is NOT installed. Use a different tool instead of trying to install it."
+                # For script execution, extract the actual failed tool from output
+                script_runners = ["bash", "sh", "python3", "python", "/bin/bash", "/bin/sh", "/usr/bin/python3"]
+                if tool_name in script_runners:
+                    # Parse output to find which tool actually failed
+                    import re
+                    not_found_match = re.search(r'([a-zA-Z0-9_.-]+):\s*(?:command )?not found', all_output_lower)
+                    if not_found_match:
+                        tool_name = not_found_match.group(1)
+                    else:
+                        tool_name = None  # Don't report bash/python as missing
+                if tool_name:
+                    output_enhanced += f"\n⚠️ Tool '{tool_name}' is NOT installed. Use a different tool instead of trying to install it."
 
             if "file for passwords is empty" in all_output_lower or "file is empty" in all_output_lower:
                 output_enhanced += "\n⚠️ The wordlist file exists but is EMPTY. Download failed or wrong file."

@@ -591,6 +591,14 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                         Display.vulnerability(vuln["title"], vuln["severity"], vuln.get("description", ""))
                         self.notifier.notify_vulnerability(vuln["title"], vuln["severity"], vuln.get("description", ""), self.target)
                 
+                # Detect tools that failed inside the script
+                import re as _re
+                not_found_in_script = _re.findall(r'([a-zA-Z0-9_.-]+):\s*(?:command )?not found', combined_output.lower())
+                for tool_name in not_found_in_script:
+                    if tool_name not in ['bash', 'sh', 'python3', 'python'] and tool_name not in failed_tools:
+                        failed_tools.add(tool_name)
+                        Display.warning(f"Tool '{tool_name}' not installed (detected in script output)")
+                
                 # Update for next iteration
                 last_command = f"[{script_type} script] {decision.get('reasoning', '')[:80]}"
                 last_output = combined_output[:3000]

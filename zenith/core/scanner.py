@@ -496,6 +496,99 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                 last_output = f"Phase switched to {new_phase}"
                 continue
 
+            # --- EXECUTE SCRIPT (file-based) ---
+            elif action == "SCRIPT":
+                script_content = decision.get("script", "")
+                script_type = decision.get("script_type", "bash").lower()
+                
+                if not script_content:
+                    Display.warning("AI returned empty script, asking to rethink...")
+                    last_output = "ERROR: Empty script. Use action SCRIPT with 'script' field containing the code and 'script_type' as 'bash' or 'python'."
+                    continue
+                
+                expected = decision.get("expected_outcome", "")
+                if expected:
+                    Display.info(f"Expected: {Colors.DIM}{expected[:100]}{Colors.RESET}")
+                
+                # Replace target placeholder
+                script_content = script_content.replace("TARGET_DOMAIN", self.target)
+                script_content = script_content.replace("TARGET_HERE", self.target)
+                
+                # Determine script path and execution command
+                if script_type == "python":
+                    script_path = os.path.join(self.executor.working_dir, "zenith_script.py")
+                    run_cmd = f"python3 {script_path}"
+                else:
+                    script_path = os.path.join(self.executor.working_dir, "zenith_script.sh")
+                    if not script_content.startswith("#!"):
+                        script_content = "#!/bin/bash\n" + script_content
+                    run_cmd = f"bash {script_path}"
+                
+                # Write script to file
+                try:
+                    with open(script_path, 'w', newline='\n') as f:
+                        f.write(script_content)
+                    os.chmod(script_path, 0o755)
+                    line_count = script_content.count('\n') + 1
+                    Display.info(f"\U0001f4dd Script written: {script_path} ({line_count} lines, {script_type})")
+                except Exception as e:
+                    Display.error(f"Failed to write script: {e}")
+                    last_output = f"ERROR: Could not write script file: {e}. Use COMMAND action instead."
+                    continue
+                
+                # Dedup check using script content hash
+                import hashlib
+                script_hash = hashlib.md5(script_content.encode()).hexdigest()[:12]
+                if script_hash in recent_commands[-5:]:
+                    Display.warning("Duplicate script detected - forcing different approach")
+                    last_output = "ERROR: You already ran this exact script. Write a DIFFERENT script."
+                    continue
+                recent_commands.append(script_hash)
+                if len(recent_commands) > 20:
+                    recent_commands = recent_commands[-20:]
+                
+                # Wrap with proxy if enabled
+                if self.proxy.enabled:
+                    run_cmd = self.proxy.wrap_command(run_cmd)
+                
+                # Execute the script
+                Display.command(f"{run_cmd} [\U0001f4c4 {script_type} script, {line_count} lines]")
+                result = self.executor.execute(run_cmd)
+                
+                # Show output
+                combined_output = result["output"]
+                if result["error"] and not result["success"]:
+                    combined_output += f"\nSTDERR: {result['error']}"
+                
+                Display.output(combined_output)
+                
+                if result["success"]:
+                    Display.success(f"Script completed in {result['duration']}s")
+                else:
+                    Display.warning(f"Script failed (code: {result['return_code']}) in {result['duration']}s")
+                
+                # Log to KB
+                self.kb.log_command(f"[SCRIPT:{script_type}] {run_cmd}", combined_output, result["success"])
+                
+                # Track as 'script' type for alternation
+                command_types.append('script')
+                if len(command_types) > 10:
+                    command_types = command_types[-10:]
+                
+                # Check for new vulnerabilities
+                old_vuln_count = sum(self.kb.get_vulnerability_count().values())
+                new_vuln_count = sum(self.kb.get_vulnerability_count().values())
+                if new_vuln_count > old_vuln_count:
+                    diff = new_vuln_count - old_vuln_count
+                    Display.success(f"\U0001f513 {diff} new vulnerability(ies) discovered!")
+                    for vuln in self.kb.data["vulnerabilities"][-diff:]:
+                        Display.vulnerability(vuln["title"], vuln["severity"], vuln.get("description", ""))
+                        self.notifier.notify_vulnerability(vuln["title"], vuln["severity"], vuln.get("description", ""), self.target)
+                
+                # Update for next iteration
+                last_command = f"[{script_type} script] {decision.get('reasoning', '')[:80]}"
+                last_output = combined_output[:3000]
+
             # --- EXECUTE COMMAND ---
             elif action == "COMMAND":
                 command = decision.get("command", "")
@@ -548,11 +641,12 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                 # If last 2 commands were both basic tools, force a script
                 is_current_script = _is_script(command)
                 if len(command_types) >= 2 and command_types[-1] == 'tool' and command_types[-2] == 'tool' and not is_current_script:
-                    Display.warning(f"2 basic tools in a row → forcing custom script")
+                    Display.warning(f"2 basic tools in a row \u2192 forcing script")
                     last_output = (f"SYSTEM RULE: You used 2 basic tool commands in a row. "
-                                   f"You MUST now write a custom bash -c '...' or python3 -c '...' script. "
-                                   f"Scripts are more effective: they chain operations, bypass WAF, handle multi-step logic. "
-                                   f"Last tool output was: {last_output[:500] if last_output else 'None'}")
+                                   f"You MUST now use action SCRIPT to write a bash or python script file. "
+                                   f"Format: {{\"action\":\"SCRIPT\",\"script_type\":\"bash\",\"script\":\"#!/bin/bash\\nYOUR CODE HERE\",\"reasoning\":\"why\"}} "
+                                   f"Scripts are saved to a file and executed - no quoting issues! "
+                                   f"Last output was: {last_output[:400] if last_output else 'None'}")
                     continue
                 
                 # Wrap with proxy if enabled

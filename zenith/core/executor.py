@@ -115,6 +115,19 @@ class TerminalExecutor:
         "xargs": 180,          # 3 min - parallel execution
         "host": 30,            # 30 sec - DNS lookup
         "waybackurls": 120,    # 2 min - wayback machine
+        "python3": 300,        # 5 min - custom python scripts
+        "python": 300,         # 5 min - python scripts
+        "bash": 300,           # 5 min - custom bash scripts
+        "sh": 180,             # 3 min - shell scripts
+        "sed": 30,             # 30 sec - text processing
+        "awk": 30,             # 30 sec - text processing
+        "sort": 30,            # 30 sec - sorting
+        "head": 10,            # 10 sec - head
+        "tail": 10,            # 10 sec - tail
+        "wc": 10,              # 10 sec - word count
+        "tr": 10,              # 10 sec - translate
+        "cut": 10,             # 10 sec - cut fields
+        "uniq": 10,            # 10 sec - unique
     }
 
     def _get_smart_timeout(self, command):

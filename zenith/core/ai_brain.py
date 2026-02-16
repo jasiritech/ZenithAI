@@ -47,11 +47,12 @@ class AIBrain:
     }
     
     # Groq models - FAST and FREE!
+    # mixtral has 32k context, llama has 8k
     GROQ_MODELS = [
-        "llama-3.3-70b-versatile",    # Best quality
+        "mixtral-8x7b-32768",         # 32k context - best for long prompts!
+        "llama-3.1-8b-instant",       # 8k but fast
+        "llama-3.3-70b-versatile",    # Best quality but 8k limit
         "llama-3.1-70b-versatile",    # Fallback
-        "llama-3.1-8b-instant",       # Fastest
-        "mixtral-8x7b-32768",         # Good alternative
     ]
 
     # Keep for backward compat - points to first in chain
@@ -251,15 +252,15 @@ Apache: Check mod_status, server-info, .htaccess leaks
 
 === CURRENT MISSION ===
 Target: {target}
-Goal: {goal[:4000]}
+Goal: {goal[:2000] if self.provider == 'groq' else goal[:4000]}
 Phase: {phase}
 
 === KNOWLEDGE BASE ===
-{json.dumps(knowledge_base, indent=2, default=str)[:2500]}
+{json.dumps(knowledge_base, indent=2, default=str)[:1500] if self.provider == 'groq' else json.dumps(knowledge_base, indent=2, default=str)[:2500]}
 
 === LAST ACTION ===
 Command: {last_command if last_command else "None yet"}
-Output: {last_output[:1500] if last_output else "No output yet"}
+Output: {last_output[:800] if self.provider == 'groq' else last_output[:1500] if last_output else "No output yet"}
 
 === DECISION LOGIC ===
 1. IF goal contains vuln info (MySQL 5.7, Exim 4.99, admin user, etc.):

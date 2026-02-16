@@ -101,6 +101,11 @@ class ProxyManager:
         if not self.enabled:
             return command
         
+        # PREVENT DOUBLE WRAPPING: if AI already included proxychains/torsocks, skip
+        cmd_lower = command.strip().lower()
+        if cmd_lower.startswith("proxychains") or cmd_lower.startswith("torsocks"):
+            return command
+        
         if self.proxy_type == "proxychains":
             # Use proxychains4 or proxychains
             pc = "proxychains4" if shutil.which("proxychains4") else "proxychains"

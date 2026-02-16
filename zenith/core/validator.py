@@ -38,6 +38,10 @@ class CommandValidator:
         "snap", "gunzip", "unzip", "tar", "cat", "ls", "test", "echo",
         "mkdir", "cp", "mv", "chmod", "head", "tail", "grep", "find",
         "searchsploit", "msfconsole", "msfvenom",
+        "host", "dig", "whois", "nslookup",  # DNS lookups resolve to IPs
+        "bash", "sh", "for", "while", "xargs",  # Shell constructs
+        "assetfinder", "subfinder", "amass",  # Subdomain tools enumerate different hosts
+        "shodan", "waybackurls", "theHarvester", "theharvester",  # OSINT tools
     ]
 
     # Allowed download sources (legitimate tool sources)
@@ -169,7 +173,12 @@ class CommandValidator:
                 # Check if targeting localhost (sometimes legitimate)
                 targets_localhost = any(loc in cmd_lower for loc in ["127.0.0.1", "localhost", "0.0.0.0"])
                 
-                if not targets_localhost:
+                # Check if targeting an IP address (may be resolved from subdomain)
+                import re as _re
+                targets_ip = bool(_re.search(r'\d+\.\d+\.\d+\.\d+', cmd_lower))
+                
+                if not targets_localhost and not targets_ip:
+                    # Only warn for non-IP targets (IPs may be resolved from subdomains)
                     self.warnings.append(
                         f"[WARNING] Command may target wrong host. Expected: {self.target}"
                     )

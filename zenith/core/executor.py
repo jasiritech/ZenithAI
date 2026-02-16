@@ -88,7 +88,7 @@ class TerminalExecutor:
         "whatweb": 60,         # 1 min - quick fingerprint
         "whois": 30,           # 30 sec - quick lookup
         "dig": 30,             # 30 sec - DNS lookup
-        "curl": 60,            # 1 min - HTTP request
+        "curl": 120,           # 2 min - proxied connections need 30s+ to connect
         "wget": 180,           # 3 min - download
         "wpscan": 600,         # 10 min - wordpress deep scan
         "httpx": 180,          # 3 min - http probe
@@ -102,6 +102,12 @@ class TerminalExecutor:
         "dnsenum": 180,        # 3 min - DNS enum
         "fierce": 180,         # 3 min - DNS recon
         "searchsploit": 30,    # 30 sec - exploit search
+        "theHarvester": 300,   # 5 min - OSINT harvester
+        "theharvester": 300,   # 5 min - case variant
+        "assetfinder": 120,    # 2 min - subdomain finder
+        "xargs": 180,          # 3 min - parallel execution
+        "host": 30,            # 30 sec - DNS lookup
+        "waybackurls": 120,    # 2 min - wayback machine
     }
 
     def _get_smart_timeout(self, command):
@@ -180,6 +186,7 @@ class TerminalExecutor:
             process = subprocess.Popen(
                 command,
                 shell=True,
+                executable='/bin/bash' if os.name != 'nt' else None,  # Use bash for for/while/do loops
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -267,11 +274,26 @@ class TerminalExecutor:
                             pass
 
             # Detect missing wordlist errors
-            if "file for passwords not found" in (stdout or "").lower() or "file for passwords not found" in (stderr or "").lower():
+            all_output_lower = ((stdout or "") + (stderr or "")).lower()
+            if "file for passwords not found" in all_output_lower or "file for logins not found" in all_output_lower:
                 output_enhanced += "\n💡 TIP: Install wordlists with: sudo apt-get install -y seclists wordlists"
                 output_enhanced += "\n💡 TIP: Or gunzip rockyou: sudo gunzip -k /usr/share/wordlists/rockyou.txt.gz"
+                output_enhanced += "\n💡 Available wordlists: /usr/share/wordlists/rockyou.txt, /usr/share/wordlists/dirb/common.txt, /usr/share/wordlists/fasttrack.txt"
+            
+            # Detect file not found errors for any path
+            if "no such file or directory" in all_output_lower or "file not found" in all_output_lower:
+                output_enhanced += "\n💡 TIP: Check file exists first with: test -f /path/to/file && echo EXISTS || echo MISSING"
+            
+            # Detect connection refused - tell AI to stop retrying this target
+            if "connection refused" in all_output_lower:
+                output_enhanced += "\n⚠️ TARGET IS BLOCKING CONNECTIONS. Switch to passive OSINT (whois, dig, crt.sh, wayback) instead of retrying active scans."
+            
+            # Detect tool not found 
+            if "not found" in all_output_lower and ("command not found" in all_output_lower or "/bin/sh" in all_output_lower or "no such file" in all_output_lower):
+                tool_name = command.split()[0] if command.split() else "unknown"
+                output_enhanced += f"\n⚠️ Tool '{tool_name}' is NOT installed. Use a different tool instead of trying to install it."
 
-            if "file for passwords is empty" in (stdout or "").lower() or "file for passwords is empty" in (stderr or "").lower():
+            if "file for passwords is empty" in all_output_lower or "file is empty" in all_output_lower:
                 output_enhanced += "\n⚠️ The wordlist file exists but is EMPTY. Download failed or wrong file."
                 output_enhanced += "\n💡 TIP: Use system wordlist: /usr/share/wordlists/dirb/common.txt"
 

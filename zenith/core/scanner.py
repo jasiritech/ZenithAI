@@ -422,6 +422,13 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
 
             action = decision.get("action", "COMMAND")
 
+            # Normalize common AI typos in action names
+            action_upper = action.upper().strip()
+            if action_upper in ("GOAL_ACHIVED", "GOAL_ACHEIVED", "GOAL_ACHIEVED", "GOALACHIEVED"):
+                action = "GOAL_ACHIEVED"
+            elif action_upper in ("SWITCH_PHASE", "SWITCHPHASE", "PHASE_SWITCH"):
+                action = "SWITCH_PHASE"
+
             # ═══════════════════════════════════════
             # STEP 2: HANDLE AI DECISION
             # ═══════════════════════════════════════
@@ -479,6 +486,12 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                     continue
                 
                 command = cleaned_cmd
+                
+                # Strip AI-added proxy wrappers (proxy.wrap_command handles this)
+                # AI sometimes adds proxychains despite being told not to
+                for prefix in ["proxychains4 -q ", "proxychains4 ", "proxychains -q ", "proxychains ", "torsocks "]:
+                    while command.startswith(prefix):
+                        command = command[len(prefix):]
                 
                 # Wrap with proxy if enabled
                 if self.proxy.enabled:

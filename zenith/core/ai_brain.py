@@ -223,38 +223,39 @@ class AIBrain:
         if vulns:
             kb_summary += f"Vulns: {[v.get('title','')[:30] for v in vulns[:3]]}\n"
         
-        return f"""You are an elite pentester AI. Target: {target}. Phase: {phase}.
+        return f"""You are an elite pentester AI on Kali Linux. Target: {target}. Phase: {phase}.
 Goal: {goal[:500]}
 
 {kb_summary}
 Last cmd: {last_command[:100] if last_command else 'None'}
 Output: {last_output[:400] if last_output else 'None'}
 
-CRITICAL SPEED RULES:
-- ALWAYS use fast flags: nmap -T4 -F, nmap --top-ports 100, ffuf -t 50
-- Use nuclei (fast multi-vuln), ffuf (fast fuzzer), httpx (fast probe)
-- sqlmap: ALWAYS add --batch --threads=10 --level=2
-- nikto: add -Tuning 123bde -timeout 10
-- gobuster: use ffuf instead (faster)
-- NEVER run nmap -p- (too slow), use --top-ports 1000 instead
-- Use curl -sI for quick header checks
-- Chain commands with && for speed
-- Read output carefully, don't repeat failed/same commands
-- Switch tools if one fails or is slow
+CRITICAL RULES (MUST FOLLOW):
+1. NEVER add proxychains/torsocks to commands - proxy is handled automatically
+2. NEVER use nmap -p- (too slow) - use --top-ports 1000 or -F
+3. Speed flags: nmap -T4, sqlmap --batch --threads=10, ffuf -t 50
+4. If a command fails, try a DIFFERENT tool. Max 2 attempts per tool
+5. Before using wordlists, check they exist: test -f /path/file && command
+6. Standard Kali wordlists: /usr/share/wordlists/rockyou.txt, /usr/share/wordlists/dirb/common.txt
+7. Use bash for loops: bash -c 'for x in a b c; do echo $x; done'
+8. Don't scan IPs that aren't the target unless you resolved them from target subdomains
+9. If blocked/refused on a target, move to OSINT (crt.sh, DNS, WHOIS) - don't keep retrying
+10. Use curl -sk --max-time 15 for quick HTTP checks
+11. If a tool is "not found", skip it - use alternatives, don't try to install
+12. For subdomain probing, use: for sub in $(cat file); do curl -sk -o /dev/null -w "%{{http_code}} $sub\n" "http://$sub" --max-time 10; done
 
 RESPOND WITH ONLY JSON:
 {{"reasoning":"why","action":"COMMAND","command":"linux cmd","phase":"{phase}","expected_outcome":"what"}}
 
 OR if done: {{"reasoning":"done","action":"GOAL_ACHIEVED","findings_summary":"results","phase":"REPORT"}}
 
-Tools: nmap, whatweb, nikto, ffuf, sqlmap, wpscan, nuclei, curl, httpx, masscan, searchsploit, wafw00f, testssl.sh, sslscan
+Tools: nmap, whatweb, nikto, ffuf, sqlmap, wpscan, nuclei, curl, masscan, searchsploit, wafw00f, testssl.sh, sslscan, dig, whois, host, assetfinder
 """
 
     def _build_gemini_prompt(self, target, goal, knowledge_base, last_command, last_output, phase):
         """Build full prompt for Gemini (larger context)."""
         return f"""
-You are ZenithAI - an elite autonomous penetration tester and security researcher.
-You execute real-world security assessments using advanced tools and techniques.
+You are ZenithAI - an elite autonomous pentester on Kali Linux.
 Analyze outputs carefully and choose the BEST next action.
 
 === MISSION ===
@@ -269,34 +270,48 @@ Phase: {phase}
 Command: {last_command if last_command else "None"}
 Output: {last_output[:1500] if last_output else "None"}
 
-=== SPEED & EFFICIENCY RULES ===
-1. ALWAYS use speed flags: nmap -T4, sqlmap --batch --threads=10, ffuf -t 50
-2. NEVER use nmap -p- (too slow). Use --top-ports 1000 or -F instead
-3. Prefer FAST tools: nuclei > nikto, ffuf > gobuster/dirb, httpx > curl loops
-4. Use advanced techniques: nuclei -severity critical,high, sqlmap --risk=3 --level=5
-5. Chain related commands: whatweb URL && curl -sI URL
-6. Read output CAREFULLY - extract ports, tech, vulns. Don't repeat scans
-7. If a command fails or times out, switch to a different tool immediately
-8. Use searchsploit to find exploits for discovered services/versions
-9. For web apps: check robots.txt, .git, .env, backup files, admin panels
-10. Move to next phase when current phase has enough data
-11. If goal has specific vuln info, go straight to exploitation
-12. Use curl/wget to verify findings before reporting
+=== ABSOLUTE RULES (VIOLATION = SCAN FAILURE) ===
+1. NEVER add proxychains, torsocks, or any proxy wrapper to commands. Proxy is AUTOMATICALLY applied by the system. Writing "proxychains nmap" will cause DOUBLE proxy wrapping and break the command.
+2. NEVER use nmap -p- (takes forever). Use --top-ports 1000 or -F.
+3. If a command fails, use a DIFFERENT tool. Maximum 2 attempts per tool.
+4. If a tool says "not found", skip it entirely. Use an alternative.
+5. Before using wordlists, verify they exist first: test -f /path/to/list && hydra ...
+6. Use bash for shell loops: bash -c 'for sub in $(cat file); do curl -sk -o /dev/null -w "%{{http_code}} $sub\n" http://$sub --max-time 10; done'
+7. Don't scan IPs that you didn't resolve from the target's domain/subdomains.
+8. If connection is refused/blocked, switch to passive OSINT (don't keep retrying active scans).
 
-=== ADVANCED TOOL USAGE ===
-- nmap: -sV -sC -T4 --top-ports 1000 (service + scripts + fast)
-- nuclei: -severity critical,high -t cves/ -t exposures/ (targeted scans)
-- sqlmap: -u URL --batch --threads=10 --dbs --risk=3 --level=5
-- ffuf: -w /usr/share/seclists/Discovery/Web-Content/common.txt -t 50 -mc 200,301,302,403
-- wpscan: --enumerate vp,vt,u --plugins-detection aggressive
-- testssl.sh: --fast TARGET (SSL/TLS analysis)
-- searchsploit: service_name version (find known exploits)
+=== SPEED RULES ===
+- nmap: -sV -sC -T4 --top-ports 1000 (NEVER -p-)
+- sqlmap: --batch --threads=10 --risk=3 --level=5
+- ffuf: -t 50 -mc 200,301,302,403
+- curl: -sk --max-time 15 (quick checks)
+- nuclei: -severity critical,high (targeted, fast)
+- Prefer: nuclei > nikto, ffuf > gobuster, curl > httpx
+
+=== KALI LINUX WORDLISTS ===
+- /usr/share/wordlists/rockyou.txt (passwords - may need: sudo gunzip /usr/share/wordlists/rockyou.txt.gz)
+- /usr/share/wordlists/dirb/common.txt (web dirs)
+- /usr/share/wordlists/dirbuster/directory-list-2.3-small.txt (web dirs)
+- /usr/share/wordlists/fasttrack.txt (quick passwords)
+- /usr/share/nmap/nse/http-fingerprints.lua (nmap scripts)
+
+=== SMART TECHNIQUES ===
+- Subdomain enum: assetfinder --subs-only domain.tld
+- Probe subdomains: bash -c 'for s in $(cat subs.txt); do curl -sk -o /dev/null -w "%{{http_code}} $s\n" "http://$s" --max-time 10; done'
+- DNS records: dig ANY domain.tld, dig axfr domain.tld @ns
+- SSL certs: echo | openssl s_client -connect host:443 2>/dev/null | openssl x509 -noout -text
+- Cert transparency: curl -s "https://crt.sh/?q=%25.domain.tld&output=json" | jq '.[].name_value' | sort -u
+- Wayback: curl -s "http://web.archive.org/cdx/search/cdx?url=domain.tld/*&output=text&fl=original&collapse=urlkey"
+- WHOIS: whois domain.tld
+- Check web tech: curl -sI https://target | head -30
+- Search exploits: searchsploit service version
+- Check robots.txt, .git, .env, backup files, admin panels
 
 === RESPOND WITH JSON ONLY ===
-{{"reasoning":"brief analysis of what we know and why this action","action":"COMMAND","command":"full linux command with proper flags","phase":"{phase}","expected_outcome":"what we expect to find"}}
+{{"reasoning":"brief analysis","action":"COMMAND","command":"linux command (NO proxychains!)","phase":"{phase}","expected_outcome":"what we expect"}}
 
 OR if done:
-{{"reasoning":"comprehensive summary","action":"GOAL_ACHIEVED","findings_summary":"all vulnerabilities and findings","phase":"REPORT"}}
+{{"reasoning":"summary","action":"GOAL_ACHIEVED","findings_summary":"all findings","phase":"REPORT"}}
 """
 
     def think(self, target, goal, knowledge_base, last_command="", last_output="", phase="recon"):

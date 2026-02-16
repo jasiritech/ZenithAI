@@ -377,6 +377,8 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
         last_output = ""
         consecutive_errors = 0
         max_consecutive_errors = 5
+        failed_tools = set()      # Track tools that are not installed
+        recent_commands = []       # Track recent commands to detect loops
 
         while self.running and self.iteration < self.max_iterations:
             self.iteration += 1
@@ -422,12 +424,22 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
 
             action = decision.get("action", "COMMAND")
 
-            # Normalize common AI typos in action names
+            # Normalize common AI typos and custom action names
             action_upper = action.upper().strip()
             if action_upper in ("GOAL_ACHIVED", "GOAL_ACHEIVED", "GOAL_ACHIEVED", "GOALACHIEVED"):
                 action = "GOAL_ACHIEVED"
             elif action_upper in ("SWITCH_PHASE", "SWITCHPHASE", "PHASE_SWITCH"):
                 action = "SWITCH_PHASE"
+            elif action_upper not in ("COMMAND", "GOAL_ACHIEVED", "SWITCH_PHASE", "ANALYZE"):
+                # AI invented a custom action (DNS_RESOLUTION, PORT_SCAN, etc.)
+                # If it has a command field, treat it as COMMAND
+                if decision.get("command"):
+                    Display.warning(f"Unknown action '{action}' → treating as COMMAND")
+                    action = "COMMAND"
+                else:
+                    Display.warning(f"Unknown action '{action}' with no command, asking AI to retry")
+                    last_output = f"ERROR: Invalid action '{action}'. Use only: COMMAND, SWITCH_PHASE, or GOAL_ACHIEVED."
+                    continue
 
             # ═══════════════════════════════════════
             # STEP 2: HANDLE AI DECISION
@@ -493,6 +505,23 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                     while command.startswith(prefix):
                         command = command[len(prefix):]
                 
+                # Check if command uses a tool that we know is not installed
+                base_tool = command.split()[0] if command.split() else ""
+                if base_tool in failed_tools:
+                    Display.warning(f"Tool '{base_tool}' is not installed - skipping")
+                    last_output = f"ERROR: Tool '{base_tool}' is NOT installed on this system. Use a different tool. Available: nmap, nikto, sqlmap, nuclei, ffuf, gobuster, curl, dig, whois, host, assetfinder, hydra, searchsploit, wpscan, sslscan"
+                    continue
+                
+                # Detect command loops (same command repeated)
+                cmd_signature = command.strip().lower()
+                if cmd_signature in recent_commands[-3:]:
+                    Display.warning(f"Duplicate command detected - forcing different approach")
+                    last_output = f"ERROR: You already ran this exact command. It failed before. Use a COMPLETELY DIFFERENT tool or approach."
+                    continue
+                recent_commands.append(cmd_signature)
+                if len(recent_commands) > 20:
+                    recent_commands = recent_commands[-20:]
+                
                 # Wrap with proxy if enabled
                 if self.proxy.enabled:
                     command = self.proxy.wrap_command(command)
@@ -536,6 +565,23 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                             vuln["title"], vuln["severity"],
                             vuln.get("description", ""), self.target
                         )
+
+                # Track tools that are not installed
+                if result["return_code"] == 127 or "not found" in combined_output.lower():
+                    tool = command.split()[0] if command.split() else ""
+                    # Strip proxy prefix to get actual tool name
+                    for px in ["proxychains4", "proxychains", "torsocks"]:
+                        if tool == px:
+                            parts = command.split()
+                            # Skip flags like -q
+                            idx = 1
+                            while idx < len(parts) and parts[idx].startswith("-"):
+                                idx += 1
+                            tool = parts[idx] if idx < len(parts) else tool
+                            break
+                    if tool and tool not in ["proxychains4", "proxychains", "torsocks", "bash", "sh"]:
+                        failed_tools.add(tool)
+                        Display.warning(f"Tool '{tool}' added to skip list (not installed)")
 
                 # Update for next iteration
                 last_command = command

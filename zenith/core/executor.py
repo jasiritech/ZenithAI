@@ -85,7 +85,7 @@ class TerminalExecutor:
         "ffuf": 300,           # 5 min - fast fuzzer
         "hydra": 600,          # 10 min - brute force
         "subfinder": 180,      # 3 min - subdomain finder
-        "whatweb": 60,         # 1 min - quick fingerprint
+        "whatweb": 120,        # 2 min - fingerprint (aggression modes are slow)
         "whois": 30,           # 30 sec - quick lookup
         "dig": 30,             # 30 sec - DNS lookup
         "curl": 120,           # 2 min - proxied connections need 30s+ to connect
@@ -96,6 +96,13 @@ class TerminalExecutor:
         "wfuzz": 300,          # 5 min - fuzzer
         "amass": 600,          # 10 min - subdomain enum
         "masscan": 180,        # 3 min - fast port scan
+        "dirsearch": 300,      # 5 min - directory scan
+        "wapiti": 300,         # 5 min - web vuln scanner
+        "openssl": 60,         # 1 min - SSL checks
+        "grep": 30,            # 30 sec - text search
+        "cat": 10,             # 10 sec - file read
+        "echo": 10,            # 10 sec - echo command
+        "jq": 30,              # 30 sec - JSON processing
         "testssl": 300,        # 5 min - SSL/TLS testing
         "sslscan": 120,        # 2 min - SSL scan
         "enum4linux": 300,     # 5 min - SMB enum
@@ -211,13 +218,19 @@ class TerminalExecutor:
                 
                 # Give AI actionable feedback on timeout
                 timeout_hints = {
-                    "nmap -p-": "Use --top-ports 100 or -F instead of -p-",
-                    "nmap": "Add -T4 for speed or use --top-ports 50",
-                    "nikto": "Use nuclei instead (faster). Or add -Tuning 123bde",
+                    "nmap -p-": "Use --top-ports 1000 or -F instead of -p-",
+                    "nmap --top-ports": "Scan timed out. Try fewer ports: --top-ports 100 or -F, and add -T4 -Pn",
+                    "nmap": "Add -T4 -Pn for speed, or use -F (fast mode) or --top-ports 100",
+                    "nikto": "Use nuclei -u URL -severity critical,high instead (faster)",
                     "gobuster": "Use ffuf instead (much faster)",
                     "dirb": "Use ffuf instead (much faster)",
-                    "sqlmap": "Add --threads=10 --batch --level=1",
-                    "hydra": "Use smaller wordlist or fewer threads",
+                    "dirsearch": "Use ffuf instead or a smaller wordlist: /usr/share/wordlists/dirb/common.txt",
+                    "sqlmap": "Add --threads=10 --batch. With --csrf-url use --threads=1",
+                    "hydra": "Use smaller wordlist: /usr/share/wordlists/fasttrack.txt",
+                    "whatweb": "Use curl -sI URL instead for quick header check",
+                    "amass": "Use assetfinder --subs-only instead (much faster)",
+                    "nuclei": "Try targeting specific templates: nuclei -u URL -severity critical,high",
+                    "ffuf": "Use smaller wordlist: /usr/share/wordlists/dirb/common.txt",
                 }
                 
                 hint = "Try a faster approach or add timeout flags."

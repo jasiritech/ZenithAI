@@ -228,28 +228,28 @@ Goal: {goal[:500]}
 
 {kb_summary}
 Last cmd: {last_command[:100] if last_command else 'None'}
-Output: {last_output[:400] if last_output else 'None'}
+Output: {last_output[:600] if last_output else 'None'}
 
-CRITICAL RULES (MUST FOLLOW):
-1. NEVER add proxychains/torsocks to commands - proxy is handled automatically
-2. NEVER use nmap -p- (too slow) - use --top-ports 1000 or -F
-3. Speed flags: nmap -T4, sqlmap --batch --threads=10, ffuf -t 50
-4. If a command fails, try a DIFFERENT tool. Max 2 attempts per tool
-5. Before using wordlists, check they exist: test -f /path/file && command
-6. Standard Kali wordlists: /usr/share/wordlists/rockyou.txt, /usr/share/wordlists/dirb/common.txt
-7. Use bash for loops: bash -c 'for x in a b c; do echo $x; done'
-8. Don't scan IPs that aren't the target unless you resolved them from target subdomains
-9. If blocked/refused on a target, move to OSINT (crt.sh, DNS, WHOIS) - don't keep retrying
-10. Use curl -sk --max-time 15 for quick HTTP checks
-11. If a tool is "not found", skip it - use alternatives, don't try to install
-12. For subdomain probing, use: for sub in $(cat file); do curl -sk -o /dev/null -w "%{{http_code}} $sub\n" "http://$sub" --max-time 10; done
+ABSOLUTE RULES:
+1. NEVER add proxychains/torsocks - proxy is AUTOMATIC
+2. NEVER use nmap -p- - use --top-ports 1000 or -F
+3. ONLY action values allowed: COMMAND, GOAL_ACHIEVED, SWITCH_PHASE
+4. NEVER repeat a command that already failed. Use DIFFERENT tool
+5. If output says "not found" - that tool is NOT installed. Use alternative
+6. Speed: nmap -T4, sqlmap --batch --threads=10, ffuf -t 50
+7. Wordlists: /usr/share/wordlists/rockyou.txt, /usr/share/wordlists/dirb/common.txt
+8. Use bash -c 'for...' for loops (not raw for/while)
+9. If blocked/refused, switch to OSINT (crt.sh, dig, whois)
+10. curl: -sk --max-time 15
+11. If sqlmap needs CSRF: use --csrf-token and --threads=1 (not 10)
+12. Hydra for web: get fresh CSRF token each time or it gives false positives
 
-RESPOND WITH ONLY JSON:
+INSTALLED TOOLS: nmap, nikto, sqlmap, nuclei, ffuf, gobuster, curl, dig, whois, host, assetfinder, hydra, searchsploit, wpscan, sslscan, openssl, dirsearch, grep, jq
+NOT INSTALLED: httpx(Go), dalfox, xsstrike, hakrawler, paramspider, gau, qsreplace, gospider, subfinder, testssl.sh, sublist3r, amass, waybackurls, wapiti, shodan
+
+RESPOND JSON ONLY:
 {{"reasoning":"why","action":"COMMAND","command":"linux cmd","phase":"{phase}","expected_outcome":"what"}}
-
-OR if done: {{"reasoning":"done","action":"GOAL_ACHIEVED","findings_summary":"results","phase":"REPORT"}}
-
-Tools: nmap, whatweb, nikto, ffuf, sqlmap, wpscan, nuclei, curl, masscan, searchsploit, wafw00f, testssl.sh, sslscan, dig, whois, host, assetfinder
+OR: {{"reasoning":"done","action":"GOAL_ACHIEVED","findings_summary":"results","phase":"REPORT"}}
 """
 
     def _build_gemini_prompt(self, target, goal, knowledge_base, last_command, last_output, phase):
@@ -271,41 +271,47 @@ Command: {last_command if last_command else "None"}
 Output: {last_output[:1500] if last_output else "None"}
 
 === ABSOLUTE RULES (VIOLATION = SCAN FAILURE) ===
-1. NEVER add proxychains, torsocks, or any proxy wrapper to commands. Proxy is AUTOMATICALLY applied by the system. Writing "proxychains nmap" will cause DOUBLE proxy wrapping and break the command.
+1. NEVER add proxychains, torsocks, or any proxy wrapper. Proxy is AUTOMATIC. "proxychains nmap" = DOUBLE proxy = BROKEN.
 2. NEVER use nmap -p- (takes forever). Use --top-ports 1000 or -F.
-3. If a command fails, use a DIFFERENT tool. Maximum 2 attempts per tool.
-4. If a tool says "not found", skip it entirely. Use an alternative.
-5. Before using wordlists, verify they exist first: test -f /path/to/list && hydra ...
-6. Use bash for shell loops: bash -c 'for sub in $(cat file); do curl -sk -o /dev/null -w "%{{http_code}} $sub\n" http://$sub --max-time 10; done'
-7. Don't scan IPs that you didn't resolve from the target's domain/subdomains.
-8. If connection is refused/blocked, switch to passive OSINT (don't keep retrying active scans).
+3. ONLY allowed actions: COMMAND, GOAL_ACHIEVED, SWITCH_PHASE. Nothing else (no DNS_RESOLUTION, PORT_SCAN, etc).
+4. NEVER repeat a failed command. Use a COMPLETELY DIFFERENT tool.
+5. If output says "not found", the tool is NOT installed. Skip it forever.
+6. Use bash -c '...' for shell loops (for/while/do). Raw loops WILL break.
+7. If connection refused/blocked, switch to passive OSINT immediately.
+8. sqlmap + CSRF: use --csrf-token="_token" --csrf-url=URL --threads=1 (NOT 10, they conflict).
+9. Hydra + CSRF: CSRF tokens expire. For Laravel, get fresh token per request or expect false positives.
+
+=== INSTALLED TOOLS (USE THESE ONLY) ===
+nmap, nikto, sqlmap, nuclei, ffuf, gobuster, curl, dig, whois, host, assetfinder, hydra, searchsploit, wpscan, sslscan, openssl, dirsearch, grep, jq, sed, awk, bash
+
+=== NOT INSTALLED (DO NOT USE) ===
+httpx(Go version), dalfox, xsstrike, hakrawler, paramspider, gau, qsreplace, gospider, subfinder, testssl.sh, sublist3r, amass, waybackurls, wapiti, shodan
 
 === SPEED RULES ===
 - nmap: -sV -sC -T4 --top-ports 1000 (NEVER -p-)
-- sqlmap: --batch --threads=10 --risk=3 --level=5
-- ffuf: -t 50 -mc 200,301,302,403
+- sqlmap: --batch --level=3 --risk=3 (add --threads=10 ONLY without --csrf-url)
+- ffuf: -w /usr/share/wordlists/dirb/common.txt -t 50 -mc 200,301,302,403
 - curl: -sk --max-time 15 (quick checks)
-- nuclei: -severity critical,high (targeted, fast)
+- nuclei: -u URL -severity critical,high (NOT -l with empty files)
 - Prefer: nuclei > nikto, ffuf > gobuster, curl > httpx
 
-=== KALI LINUX WORDLISTS ===
-- /usr/share/wordlists/rockyou.txt (passwords - may need: sudo gunzip /usr/share/wordlists/rockyou.txt.gz)
-- /usr/share/wordlists/dirb/common.txt (web dirs)
-- /usr/share/wordlists/dirbuster/directory-list-2.3-small.txt (web dirs)
+=== KALI WORDLISTS ===
+- /usr/share/wordlists/rockyou.txt (passwords)
+- /usr/share/wordlists/dirb/common.txt (web dirs - SMALL, fast)
+- /usr/share/wordlists/dirbuster/directory-list-2.3-small.txt (web dirs - MEDIUM)
 - /usr/share/wordlists/fasttrack.txt (quick passwords)
-- /usr/share/nmap/nse/http-fingerprints.lua (nmap scripts)
 
 === SMART TECHNIQUES ===
-- Subdomain enum: assetfinder --subs-only domain.tld
-- Probe subdomains: bash -c 'for s in $(cat subs.txt); do curl -sk -o /dev/null -w "%{{http_code}} $s\n" "http://$s" --max-time 10; done'
-- DNS records: dig ANY domain.tld, dig axfr domain.tld @ns
-- SSL certs: echo | openssl s_client -connect host:443 2>/dev/null | openssl x509 -noout -text
-- Cert transparency: curl -s "https://crt.sh/?q=%25.domain.tld&output=json" | jq '.[].name_value' | sort -u
+- Subdomains: assetfinder --subs-only domain.tld
+- Probe subs: bash -c 'for s in $(cat subs.txt); do curl -sk -o /dev/null -w "%{{http_code}} $s\n" http://$s --max-time 10; done'
+- DNS: dig ANY domain.tld, dig axfr domain.tld @ns
+- SSL: echo | openssl s_client -connect host:443 2>/dev/null | openssl x509 -noout -text
+- Certs: curl -s "https://crt.sh/?q=%25.domain.tld&output=json" | jq -r '.[].name_value' | sort -u
 - Wayback: curl -s "http://web.archive.org/cdx/search/cdx?url=domain.tld/*&output=text&fl=original&collapse=urlkey"
-- WHOIS: whois domain.tld
-- Check web tech: curl -sI https://target | head -30
-- Search exploits: searchsploit service version
-- Check robots.txt, .git, .env, backup files, admin panels
+- Web tech: curl -sI https://target | head -30
+- Exploits: searchsploit service version
+- Check: robots.txt, .git, .env, backup files, admin panels
+- XSS manual: curl -sk "https://target/page?param=<script>alert(1)</script>" | grep -i script
 
 === RESPOND WITH JSON ONLY ===
 {{"reasoning":"brief analysis","action":"COMMAND","command":"linux command (NO proxychains!)","phase":"{phase}","expected_outcome":"what we expect"}}

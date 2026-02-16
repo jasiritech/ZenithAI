@@ -55,9 +55,9 @@ def _check_and_install_deps():
     for pkg, label in missing:
         try:
             print(f"  \033[94m[*] Installing {pkg} ({label} support)...\033[0m")
-            # Show ALL output so user can see what's happening
+            # --break-system-packages needed for Kali/Debian (PEP 668)
             result = subprocess.run(
-                [sys.executable, "-m", "pip", "install", pkg],
+                [sys.executable, "-m", "pip", "install", "--break-system-packages", pkg],
                 capture_output=True, text=True, timeout=180
             )
             if result.returncode == 0:
@@ -82,7 +82,7 @@ def _check_and_install_deps():
         for pkg, label in missing:
             try:
                 result = subprocess.run(
-                    ["pip3", "install", pkg],
+                    ["pip3", "install", "--break-system-packages", pkg],
                     capture_output=True, text=True, timeout=180
                 )
                 if result.returncode == 0:

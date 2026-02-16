@@ -438,23 +438,52 @@ OR if done:
                 raw_text = raw_text[:-3]
             raw_text = raw_text.strip()
             
-            # Parse JSON
+            # Parse JSON - fix invalid escape sequences from AI
+            def _fix_json_escapes(text):
+                """Fix invalid JSON escape sequences that AI produces.
+                JSON only allows: backslash-quote, double-backslash, and a few control chars.
+                AI often writes grep regex patterns which break JSON parsing."""
+                import re
+                # Fix invalid backslash-X escapes where X is not a valid JSON escape char
+                # Valid JSON escapes after backslash: " \ / b f n r t u
+                def _replace_invalid(m):
+                    return '\\\\' + m.group(1)
+                fixed = re.sub(r'\\([^"\\/bfnrtu])', _replace_invalid, text)
+                return fixed
+            
             try:
                 decision = json.loads(raw_text)
             except json.JSONDecodeError:
-                # Try to extract JSON from the response
-                import re
-                json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
-                if json_match:
-                    decision = json.loads(json_match.group())
-                else:
-                    decision = {
-                        "reasoning": "Failed to parse AI response, retrying with basic scan",
-                        "action": "COMMAND",
-                        "command": f"nmap -sV -sC {target}",
-                        "phase": phase,
-                        "expected_outcome": "Basic port scan results"
-                    }
+                # Try fixing escape sequences first
+                try:
+                    fixed_text = _fix_json_escapes(raw_text)
+                    decision = json.loads(fixed_text)
+                except json.JSONDecodeError:
+                    # Try to extract JSON from the response
+                    import re
+                    json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+                    if json_match:
+                        try:
+                            decision = json.loads(json_match.group())
+                        except json.JSONDecodeError:
+                            try:
+                                decision = json.loads(_fix_json_escapes(json_match.group()))
+                            except json.JSONDecodeError:
+                                decision = {
+                                    "reasoning": "Failed to parse AI response, running web scan",
+                                    "action": "COMMAND",
+                                    "command": f"curl -skI https://{target}/ | head -30",
+                                    "phase": phase,
+                                    "expected_outcome": "HTTP headers and server info"
+                                }
+                    else:
+                        decision = {
+                            "reasoning": "Failed to parse AI response, running web scan",
+                            "action": "COMMAND",
+                            "command": f"curl -skI https://{target}/ | head -30",
+                            "phase": phase,
+                            "expected_outcome": "HTTP headers and server info"
+                        }
             
             # Success - reset error counter
             self.consecutive_errors = 0
@@ -533,13 +562,23 @@ OR if done:
                     "phase": "REPORT"
                 }
             
-            # Other errors - fallback action
+            # Other errors - fallback action (vary commands to avoid duplicate detection)
+            fallback_commands = [
+                (f"curl -skI https://{target}/ | head -30", "HTTP headers check"),
+                (f"dig ANY {target}", "DNS records lookup"),
+                (f"whois {target} | head -40", "WHOIS information"),
+                (f'bash -c \'for p in .env .git/HEAD robots.txt sitemap.xml; do CODE=$(curl -sk -o /dev/null -w "%{{http_code}}" "https://{target}/$p" --max-time 10); [ "$CODE" != "404" ] && [ "$CODE" != "000" ] && echo "$p -> $CODE"; done\'', "Sensitive file discovery"),
+                (f"sslscan --no-colour {target} | head -40", "SSL/TLS scan"),
+                (f"nikto -h https://{target} -maxtime 120 -C all", "Web vulnerability scan"),
+            ]
+            import random
+            cmd, outcome = random.choice(fallback_commands)
             return {
-                "reasoning": f"AI error occurred: {error_msg[:100]}. Falling back to basic scan.",
+                "reasoning": f"AI error occurred: {error_msg[:100]}. Using fallback command.",
                 "action": "COMMAND",
-                "command": f"nmap -sV {target}",
-                "phase": "recon",
-                "expected_outcome": "Basic port scan"
+                "command": cmd,
+                "phase": phase,
+                "expected_outcome": outcome
             }
 
     def _call_groq(self, prompt):

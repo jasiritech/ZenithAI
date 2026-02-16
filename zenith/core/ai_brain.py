@@ -241,15 +241,15 @@ class AIBrain:
         prompt += "10. curl: -sk --max-time 15\n\n"
         prompt += "INSTALLED: nmap, nikto, sqlmap, nuclei, ffuf, gobuster, curl, dig, whois, host, assetfinder, hydra, searchsploit, wpscan, sslscan, openssl, dirsearch, grep, jq, python3, bash\n"
         prompt += "NOT INSTALLED: httpx(Go), dalfox, xsstrike, hakrawler, paramspider, gau, qsreplace, gospider, subfinder, testssl.sh, sublist3r, amass, waybackurls, wapiti, shodan\n\n"
-        prompt += "RESPOND WITH ONE OF THESE JSON FORMATS:\n\n"
-        prompt += "1. Basic tool:\n"
-        prompt += '{{"reasoning":"why","action":"COMMAND","command":"nmap -sV -T4 --top-ports 1000 ' + target + '","phase":"' + phase + '","expected_outcome":"what"}}\n\n'
-        prompt += "2. SCRIPT file (PREFERRED for complex tasks!):\n"
-        prompt += '{{"reasoning":"why","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"' + target + '\\"\\necho \'=== Scan ===\'\\nfor p in .env .git/HEAD robots.txt; do\\n  code=$(curl -sk -o /dev/null -w \'%{http_code}\' \\"https://$target/$p\\" --max-time 10)\\n  [ \\"$code\\" != \\"404\\" ] && echo \\"$p -> $code\\"\\ndone","phase":"' + phase + '","expected_outcome":"what"}}\n\n'
-        prompt += "3. Python SCRIPT:\n"
-        prompt += '{{"reasoning":"why","action":"SCRIPT","script_type":"python","script":"import urllib.request, ssl\\nctx = ssl._create_unverified_context()\\ntarget = \'' + target + '\'\\nfor p in [\'.env\',\'robots.txt\',\'api/v1\']:\\n    try:\\n        r = urllib.request.urlopen(f\'https://{target}/{p}\', context=ctx, timeout=10)\\n        print(f\'[{r.status}] /{p}\')\\n    except: pass","phase":"' + phase + '","expected_outcome":"what"}}\n\n'
-        prompt += "4. Done:\n"
-        prompt += '{{"reasoning":"done","action":"GOAL_ACHIEVED","findings_summary":"results","phase":"REPORT"}}\n'
+        prompt += "CRITICAL: Output ONLY raw JSON. No markdown, no explanation, no ```json blocks. Just the JSON object.\n\n"
+        prompt += "JSON FORMAT - Basic tool:\n"
+        prompt += '{"reasoning":"why","action":"COMMAND","command":"nmap -sV -T4 --top-ports 1000 ' + target + '","phase":"' + phase + '","expected_outcome":"what"}\n\n'
+        prompt += "JSON FORMAT - SCRIPT file (PREFERRED for complex tasks!):\n"
+        prompt += '{"reasoning":"why","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"' + target + '\\"\\necho \'=== Scan ===\'\\nfor p in .env .git/HEAD robots.txt; do\\n  code=$(curl -sk -o /dev/null -w \'%{http_code}\' \\"https://$target/$p\\" --max-time 10)\\n  [ \\"$code\\" != \\"404\\" ] && echo \\"$p -> $code\\"\\ndone","phase":"' + phase + '","expected_outcome":"what"}\n\n'
+        prompt += "JSON FORMAT - Python SCRIPT:\n"
+        prompt += '{"reasoning":"why","action":"SCRIPT","script_type":"python","script":"import urllib.request, ssl\\nctx = ssl._create_unverified_context()\\ntarget = \'' + target + '\'\\nfor p in [\'.env\',\'robots.txt\',\'api/v1\']:\\n    try:\\n        r = urllib.request.urlopen(f\'https://{target}/{p}\', context=ctx, timeout=10)\\n        print(f\'[{r.status}] /{p}\')\\n    except: pass","phase":"' + phase + '","expected_outcome":"what"}\n\n'
+        prompt += "JSON FORMAT - Done:\n"
+        prompt += '{"reasoning":"done","action":"GOAL_ACHIEVED","findings_summary":"results","phase":"REPORT"}\n'
         return prompt
 
     def _build_gemini_prompt(self, target, goal, knowledge_base, last_command, last_output, phase):
@@ -407,18 +407,27 @@ FORMAT 3 - Done:
                 if json_start > 0:
                     raw_text = raw_text[json_start:]
             
-            # Parse JSON - fix invalid escape sequences from AI
+            # Parse JSON - fix common AI response issues
             def _fix_json_escapes(text):
-                """Fix invalid JSON escape sequences that AI produces.
-                JSON only allows: backslash-quote, double-backslash, and a few control chars.
-                AI often writes grep regex patterns which break JSON parsing."""
+                """Fix invalid JSON escape sequences that AI produces."""
                 import re
-                # Fix invalid backslash-X escapes where X is not a valid JSON escape char
-                # Valid JSON escapes after backslash: " \ / b f n r t u
                 def _replace_invalid(m):
                     return '\\\\' + m.group(1)
                 fixed = re.sub(r'\\([^"\\/bfnrtu])', _replace_invalid, text)
                 return fixed
+            
+            def _normalize_braces(text):
+                """Fix double braces {{ }} that AI copies from prompt examples."""
+                t = text.strip()
+                # Fix leading {{ and trailing }}
+                while t.startswith('{{') and not t.startswith('{{{'):
+                    t = t[1:]
+                while t.endswith('}}') and not t.endswith('}}}'):
+                    t = t[:-1]
+                return t
+            
+            # Apply brace normalization first
+            raw_text = _normalize_braces(raw_text)
             
             try:
                 decision = json.loads(raw_text)
@@ -432,14 +441,19 @@ FORMAT 3 - Done:
                     import re
                     json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
                     if json_match:
+                        extracted = _normalize_braces(json_match.group())
                         try:
-                            decision = json.loads(json_match.group())
+                            decision = json.loads(extracted)
                         except json.JSONDecodeError:
                             try:
-                                decision = json.loads(_fix_json_escapes(json_match.group()))
+                                decision = json.loads(_fix_json_escapes(extracted))
                             except json.JSONDecodeError:
+                                print(f"    [DEBUG] JSON parse failed. Raw response (first 300 chars):")
+                                print(f"    [DEBUG] {raw_text[:300]}")
                                 decision = self._fallback_decision(target, phase)
                     else:
+                        print(f"    [DEBUG] No JSON found in AI response (first 300 chars):")
+                        print(f"    [DEBUG] {raw_text[:300]}")
                         decision = self._fallback_decision(target, phase)
             
             # Success - reset error counter
@@ -604,18 +618,28 @@ FORMAT 3 - Done:
         if len(prompt) > 6000:
             prompt = prompt[:6000] + "\n...[truncated]...\nRespond with JSON only."
         
-        # Add to chat history for context
+        # Build messages with system message for JSON compliance
+        system_msg = {
+            "role": "system",
+            "content": "You are a pentesting AI assistant. You MUST respond with ONLY a single valid JSON object. No markdown, no explanations, no code fences. Just raw JSON."
+        }
+        
+        # Add current prompt to chat history
         self.chat_history.append({"role": "user", "content": prompt})
         
-        # Keep only last 4 messages to avoid context overflow (Groq has small context)
+        # Keep only last 4 user/assistant messages to avoid context overflow
         if len(self.chat_history) > 4:
             self.chat_history = self.chat_history[-4:]
         
+        # Always prepend system message (not in history to save space)
+        messages = [system_msg] + self.chat_history
+        
         response = self.groq_client.chat.completions.create(
             model=self.model_name,
-            messages=self.chat_history,
+            messages=messages,
             max_tokens=2048,
             temperature=0.7,
+            response_format={"type": "json_object"},
         )
         
         assistant_msg = response.choices[0].message.content

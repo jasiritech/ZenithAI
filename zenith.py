@@ -19,9 +19,59 @@ import json
 import os
 import sys
 import re
+import subprocess
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+
+# ═══════════════════════════════════════════════════════════
+# AUTO-INSTALL DEPENDENCIES - No more "module not found" errors!
+# ═══════════════════════════════════════════════════════════
+
+def _check_and_install_deps():
+    """Check if required AI libraries are installed. Auto-install if missing."""
+    missing = []
+    
+    try:
+        import google.generativeai
+    except ImportError:
+        missing.append(("google-generativeai", "Gemini"))
+    
+    try:
+        import groq
+    except ImportError:
+        missing.append(("groq", "Groq"))
+    
+    if not missing:
+        return  # All good!
+    
+    # At least one library is missing
+    missing_names = [m[0] for m in missing]
+    print(f"\n  \033[93m[⚠] Missing AI libraries: {', '.join(missing_names)}\033[0m")
+    print(f"  \033[2m  Auto-installing now...\033[0m\n")
+    
+    for pkg, label in missing:
+        try:
+            print(f"  \033[94m[*] Installing {pkg} ({label} support)...\033[0m")
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", pkg],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=120
+            )
+            print(f"  \033[92m[✓] {pkg} installed successfully!\033[0m")
+        except subprocess.CalledProcessError as e:
+            print(f"  \033[91m[✗] Failed to install {pkg}: {e}\033[0m")
+            print(f"  \033[2m  Try manually: pip install {pkg}\033[0m")
+        except subprocess.TimeoutExpired:
+            print(f"  \033[91m[✗] Install timed out for {pkg}\033[0m")
+            print(f"  \033[2m  Try manually: pip install {pkg}\033[0m")
+    
+    print()
+
+# Run dependency check BEFORE importing our modules
+_check_and_install_deps()
 
 from zenith.core.scanner import ZenithScanner
 from zenith.core.session import SessionManager

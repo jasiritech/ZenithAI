@@ -140,17 +140,22 @@ class AIBrain:
     def _init_gemini(self, api_key, model_choice):
         """Initialize Gemini provider."""
         if not GEMINI_AVAILABLE:
-            # Safety net: if Groq is available, redirect there instead of crashing
-            if GROQ_AVAILABLE:
+            # Only fall back to Groq if the API key is actually a Groq key
+            if GROQ_AVAILABLE and api_key.startswith("gsk_"):
                 print("    [!] google-generativeai not installed, falling back to Groq...")
                 self.provider = "groq"
                 self._init_groq(api_key)
                 return
+            
+            # Gemini key but no Gemini library - tell user exactly what to do
             raise ValueError(
-                "[!] No AI library installed!\n"
-                "    Run: pip install groq           (FREE & recommended)\n"
-                "    Or:  pip install google-generativeai\n"
-                "    Or:  pip install -r requirements.txt"
+                "[!] google-generativeai library not installed!\n"
+                "    Your Gemini API key needs this library.\n\n"
+                "    Fix: Run this command on your terminal:\n"
+                "      pip install --break-system-packages google-generativeai\n\n"
+                "    OR switch to Groq (FREE, no extra install needed):\n"
+                "      Get key at: https://console.groq.com/keys\n"
+                "      Then choose [2] Groq when starting ZenithAI"
             )
         genai.configure(api_key=api_key)
         

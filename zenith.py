@@ -230,10 +230,11 @@ def interactive_setup():
     print(f"  {Colors.DIM}  Get yours free: {key_url}{Colors.RESET}")
     print()
 
-    api_key = os.environ.get(env_var, "") or os.environ.get("GEMINI_API_KEY", "")
+    # Only check the env var for the SELECTED provider (don't mix keys!)
+    api_key = os.environ.get(env_var, "")
     if api_key:
         masked = api_key[:8] + "..." + api_key[-4:]
-        print(f"  {Colors.GREEN}  [✓] Found API key: {masked}{Colors.RESET}")
+        print(f"  {Colors.GREEN}  [✓] Found {provider.upper()} API key: {masked}{Colors.RESET}")
         use_env = input(f"\n  {Colors.YELLOW}  Use this key? [Y/n]: {Colors.RESET}").strip().lower()
         if use_env == 'n':
             api_key = ""
@@ -244,6 +245,19 @@ def interactive_setup():
     if not api_key:
         print(f"\n  {Colors.RED}  [✗] API key is required!{Colors.RESET}")
         sys.exit(1)
+
+    # Validate key matches chosen provider
+    if provider == "groq" and not api_key.startswith("gsk_"):
+        print(f"\n  {Colors.YELLOW}  [⚠] That key doesn't look like a Groq key (should start with gsk_){Colors.RESET}")
+        print(f"  {Colors.DIM}  Get your FREE Groq key at: https://console.groq.com/keys{Colors.RESET}")
+        retry = input(f"  {Colors.YELLOW}  Enter Groq API Key (gsk_...): {Colors.RESET}").strip()
+        if retry:
+            api_key = retry
+    elif provider == "gemini" and api_key.startswith("gsk_"):
+        print(f"\n  {Colors.YELLOW}  [⚠] That looks like a Groq key, not Gemini!{Colors.RESET}")
+        retry = input(f"  {Colors.YELLOW}  Enter Gemini API Key (AIza...): {Colors.RESET}").strip()
+        if retry:
+            api_key = retry
 
     # If resuming, load session data and skip target/goal/profile
     if resume_session:

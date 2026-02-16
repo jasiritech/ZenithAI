@@ -88,16 +88,14 @@ class AIBrain:
         self.max_consecutive_errors = 5
         self.chat_history = []
         
-        # Auto-detect provider STRICTLY by API key format
-        # Key starting with gsk_ = Groq, anything else = Gemini
-        if api_key.startswith("gsk_"):
+        # Detect provider: key format OR explicit model_choice
+        # Key starting with gsk_ = always Groq
+        # model_choice == 'groq' = user explicitly chose Groq
+        if api_key.startswith("gsk_") or model_choice == "groq":
             self.provider = "groq"
             self._init_groq(api_key)
         else:
             self.provider = "gemini"
-            # If model_choice was 'groq' but key is Gemini, default to flash
-            if model_choice == "groq":
-                model_choice = "flash"
             self._init_gemini(api_key, model_choice)
     
     def _init_groq(self, api_key):

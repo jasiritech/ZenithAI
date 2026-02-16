@@ -187,6 +187,11 @@ class ZenithScanner:
         vuln_counts = self.kb.get_vulnerability_count()
         total_vulns = sum(vuln_counts.values())
         
+        # Get data once for reuse
+        kb_data = self.kb.get_full_data()
+        vulnerabilities = kb_data.get("vulnerabilities", [])
+        open_ports = kb_data.get("open_ports", [])
+        
         print(f"\n  {Colors.CYAN}{'═' * 55}{Colors.RESET}")
         print(f"  {Colors.BOLD}  📊 FINDINGS SUMMARY{Colors.RESET}")
         print(f"  {Colors.CYAN}{'═' * 55}{Colors.RESET}")
@@ -203,7 +208,6 @@ class ZenithScanner:
         print()
         
         # Show actual findings
-        vulnerabilities = self.kb.get_full_data().get("vulnerabilities", [])
         if vulnerabilities:
             print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
             print(f"  {Colors.BOLD}  🔍 VULNERABILITY DETAILS:{Colors.RESET}")
@@ -230,8 +234,6 @@ class ZenithScanner:
             print()
         
         # Show ports/services found
-        kb_data = self.kb.get_full_data()
-        open_ports = kb_data.get("open_ports", [])
         if open_ports:
             print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
             print(f"  {Colors.BOLD}  🌐 OPEN PORTS/SERVICES:{Colors.RESET}")
@@ -259,87 +261,106 @@ class ZenithScanner:
         print(f"  {Colors.DIM}  • Time elapsed: {elapsed}{Colors.RESET}")
         print()
         
-        # Ask user what to do
-        print(f"  {Colors.CYAN}{'═' * 55}{Colors.RESET}")
-        print(f"  {Colors.BOLD}  🤔 WHAT WOULD YOU LIKE TO DO?{Colors.RESET}")
-        print(f"  {Colors.CYAN}{'═' * 55}{Colors.RESET}")
-        print()
-        print(f"  {Colors.YELLOW}  [1] ✅ Generate final report & exit{Colors.RESET}")
-        print(f"  {Colors.GREEN}  [2] 🔄 Continue scanning (give AI new instructions){Colors.RESET}")
-        print(f"  {Colors.CYAN}  [3] ❓ Ask AI a question about findings{Colors.RESET}")
-        print()
-        
-        try:
-            choice = input(f"  {Colors.YELLOW}  Your choice [1/2/3]: {Colors.RESET}").strip()
+        # Interactive loop - keep asking until user wants to exit or continue
+        while True:
+            print(f"  {Colors.CYAN}{'═' * 55}{Colors.RESET}")
+            print(f"  {Colors.BOLD}  🤔 WHAT WOULD YOU LIKE TO DO?{Colors.RESET}")
+            print(f"  {Colors.CYAN}{'═' * 55}{Colors.RESET}")
+            print()
+            print(f"  {Colors.YELLOW}  [1] ✅ Generate final report & exit{Colors.RESET}")
+            print(f"  {Colors.GREEN}  [2] 🔄 Continue scanning (give AI new instructions){Colors.RESET}")
+            print(f"  {Colors.CYAN}  [3] ❓ Ask AI a question about findings{Colors.RESET}")
+            print()
             
-            if choice == "2":
-                # Continue with new instructions
-                print()
-                new_goal = input(f"  {Colors.GREEN}  📝 What should AI do next? {Colors.RESET}").strip()
-                if new_goal:
-                    self.goal = f"{self.goal}\n\nADDITIONAL USER REQUEST: {new_goal}"
-                    self.kb.add_note(f"User requested: {new_goal}")
-                    Display.success(f"Got it! AI will now: {new_goal[:80]}...")
-                    return True  # Continue scanning
-                else:
-                    Display.info("No new instructions. Generating report...")
-                    return False
-                    
-            elif choice == "3":
-                # Ask AI a question
-                print()
-                question = input(f"  {Colors.CYAN}  ❓ Your question: {Colors.RESET}").strip()
-                if question:
-                    Display.thinking("AI is thinking...")
-                    # Use AI to answer
-                    try:
-                        answer_prompt = f"""
+            try:
+                choice = input(f"  {Colors.YELLOW}  Your choice [1/2/3]: {Colors.RESET}").strip()
+                
+                if choice == "2":
+                    # Continue with new instructions
+                    print()
+                    new_goal = input(f"  {Colors.GREEN}  📝 What should AI do next? {Colors.RESET}").strip()
+                    if new_goal:
+                        self.goal = f"{self.goal}\n\nADDITIONAL USER REQUEST: {new_goal}"
+                        self.kb.add_note(f"User requested: {new_goal}")
+                        Display.success(f"Got it! AI will now: {new_goal[:80]}...")
+                        return True  # Continue scanning
+                    else:
+                        Display.info("No instructions given. Try again or choose [1] to exit.")
+                        continue
+                        
+                elif choice == "3":
+                    # Ask AI a question
+                    print()
+                    question = input(f"  {Colors.CYAN}  ❓ Your question: {Colors.RESET}").strip()
+                    if question:
+                        Display.thinking("AI is thinking...")
+                        try:
+                            # Build context for question
+                            findings_summary = [v.get('title', v.get('description', ''))[:50] for v in vulnerabilities[:5]]
+                            ports_summary = str(open_ports[:5]) if open_ports else "None found"
+                            
+                            answer_prompt = f"""
 Based on the security scan of {self.target}, answer this question:
 
 QUESTION: {question}
 
 SCAN DATA:
 - Vulnerabilities found: {total_vulns}
-- Open ports: {open_ports[:5]}
-- Key findings: {[v.get('title', v.get('description', ''))[:50] for v in vulnerabilities[:5]]}
+- Open ports: {ports_summary}
+- Key findings: {findings_summary}
 
 Give a direct, helpful answer. If the question asks for more scanning, suggest specific commands.
 """
-                        if self.ai.provider == "groq":
-                            answer = self.ai._call_groq(answer_prompt)
-                        else:
-                            answer = self.ai._call_gemini(answer_prompt)
-                        
-                        print()
-                        print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
-                        print(f"  {Colors.BOLD}  🤖 AI ANSWER:{Colors.RESET}")
-                        print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
-                        # Word wrap the answer
-                        words = answer.split()
-                        line = "  "
-                        for word in words:
-                            if len(line) + len(word) > 70:
-                                print(line)
-                                line = "  " + word
+                            if self.ai.provider == "groq":
+                                answer = self.ai._call_groq(answer_prompt)
                             else:
-                                line += " " + word
-                        if line.strip():
-                            print(line)
-                        print()
-                        
-                    except Exception as e:
-                        Display.error(f"AI error: {e}")
+                                answer = self.ai._call_gemini(answer_prompt)
+                            
+                            print()
+                            print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
+                            print(f"  {Colors.BOLD}  🤖 AI ANSWER:{Colors.RESET}")
+                            print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
+                            
+                            # Word wrap the answer
+                            for line in answer.split('\n'):
+                                if len(line) > 70:
+                                    words = line.split()
+                                    current_line = "  "
+                                    for word in words:
+                                        if len(current_line) + len(word) + 1 > 70:
+                                            print(current_line)
+                                            current_line = "  " + word
+                                        else:
+                                            current_line += " " + word if current_line.strip() else "  " + word
+                                    if current_line.strip():
+                                        print(current_line)
+                                else:
+                                    print(f"  {line}")
+                            print()
+                            
+                            # Wait for user to read
+                            input(f"  {Colors.DIM}Press Enter to continue...{Colors.RESET}")
+                            print()
+                            
+                        except Exception as e:
+                            Display.error(f"AI error: {e}")
+                            print()
+                    
+                    # Loop back to menu
+                    continue
                 
-                # After answering, ask again
-                return self._interactive_review()
-            
-            else:
-                # Default: generate report
+                elif choice == "1" or choice == "":
+                    # Generate report
+                    return False
+                
+                else:
+                    Display.warning("Invalid choice. Enter 1, 2, or 3.")
+                    continue
+                    
+            except (EOFError, KeyboardInterrupt):
+                print()
+                Display.info("Generating report...")
                 return False
-                
-        except (EOFError, KeyboardInterrupt):
-            Display.info("Generating report...")
-            return False
 
     def run(self):
         """

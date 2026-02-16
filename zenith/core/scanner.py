@@ -172,6 +172,175 @@ class ZenithScanner:
         except Exception:
             pass  # Don't crash on save failure during exit
 
+    def _interactive_review(self):
+        """
+        Interactive review before final report.
+        Shows findings and asks user if they want to continue or have questions.
+        
+        Returns:
+            bool: True if user wants to continue, False to generate report
+        """
+        print()
+        Display.section("📋 SCAN REVIEW - CHECK FINDINGS")
+        
+        # Show summary of what was found
+        vuln_counts = self.kb.get_vulnerability_count()
+        total_vulns = sum(vuln_counts.values())
+        
+        print(f"\n  {Colors.CYAN}{'═' * 55}{Colors.RESET}")
+        print(f"  {Colors.BOLD}  📊 FINDINGS SUMMARY{Colors.RESET}")
+        print(f"  {Colors.CYAN}{'═' * 55}{Colors.RESET}")
+        print()
+        
+        # Vulnerability counts by severity
+        print(f"  {Colors.RED}  🔴 CRITICAL: {vuln_counts.get('critical', 0)}{Colors.RESET}")
+        print(f"  {Colors.YELLOW}  🟠 HIGH:     {vuln_counts.get('high', 0)}{Colors.RESET}")
+        print(f"  {Colors.YELLOW}  🟡 MEDIUM:   {vuln_counts.get('medium', 0)}{Colors.RESET}")
+        print(f"  {Colors.GREEN}  🟢 LOW:      {vuln_counts.get('low', 0)}{Colors.RESET}")
+        print(f"  {Colors.DIM}  ⚪ INFO:     {vuln_counts.get('info', 0)}{Colors.RESET}")
+        print()
+        print(f"  {Colors.BOLD}  TOTAL: {total_vulns} vulnerabilities{Colors.RESET}")
+        print()
+        
+        # Show actual findings
+        vulnerabilities = self.kb.get_full_data().get("vulnerabilities", [])
+        if vulnerabilities:
+            print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
+            print(f"  {Colors.BOLD}  🔍 VULNERABILITY DETAILS:{Colors.RESET}")
+            print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
+            
+            for i, vuln in enumerate(vulnerabilities[:10], 1):  # Show max 10
+                severity = vuln.get("severity", "INFO").upper()
+                title = vuln.get("title", vuln.get("description", "Unknown"))[:60]
+                
+                # Color by severity
+                if severity == "CRITICAL":
+                    color = Colors.RED
+                elif severity == "HIGH":
+                    color = Colors.YELLOW
+                elif severity == "MEDIUM":
+                    color = Colors.YELLOW
+                else:
+                    color = Colors.DIM
+                
+                print(f"  {color}  [{i}] [{severity}] {title}{Colors.RESET}")
+            
+            if len(vulnerabilities) > 10:
+                print(f"  {Colors.DIM}  ... and {len(vulnerabilities) - 10} more{Colors.RESET}")
+            print()
+        
+        # Show ports/services found
+        kb_data = self.kb.get_full_data()
+        open_ports = kb_data.get("open_ports", [])
+        if open_ports:
+            print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
+            print(f"  {Colors.BOLD}  🌐 OPEN PORTS/SERVICES:{Colors.RESET}")
+            print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
+            for port_info in open_ports[:8]:
+                if isinstance(port_info, dict):
+                    port = port_info.get("port", "?")
+                    service = port_info.get("service", "unknown")
+                    print(f"  {Colors.GREEN}  • Port {port}: {service}{Colors.RESET}")
+                else:
+                    print(f"  {Colors.GREEN}  • {port_info}{Colors.RESET}")
+            if len(open_ports) > 8:
+                print(f"  {Colors.DIM}  ... and {len(open_ports) - 8} more{Colors.RESET}")
+            print()
+        
+        # Show commands executed
+        stats = self.executor.get_stats()
+        print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
+        print(f"  {Colors.BOLD}  📈 SCAN STATS:{Colors.RESET}")
+        print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
+        print(f"  {Colors.DIM}  • Commands executed: {stats['total_commands']}{Colors.RESET}")
+        print(f"  {Colors.DIM}  • Commands failed: {stats['failed_commands']}{Colors.RESET}")
+        print(f"  {Colors.DIM}  • AI iterations: {self.iteration}{Colors.RESET}")
+        elapsed = str(datetime.now() - self.start_time).split('.')[0]
+        print(f"  {Colors.DIM}  • Time elapsed: {elapsed}{Colors.RESET}")
+        print()
+        
+        # Ask user what to do
+        print(f"  {Colors.CYAN}{'═' * 55}{Colors.RESET}")
+        print(f"  {Colors.BOLD}  🤔 WHAT WOULD YOU LIKE TO DO?{Colors.RESET}")
+        print(f"  {Colors.CYAN}{'═' * 55}{Colors.RESET}")
+        print()
+        print(f"  {Colors.YELLOW}  [1] ✅ Generate final report & exit{Colors.RESET}")
+        print(f"  {Colors.GREEN}  [2] 🔄 Continue scanning (give AI new instructions){Colors.RESET}")
+        print(f"  {Colors.CYAN}  [3] ❓ Ask AI a question about findings{Colors.RESET}")
+        print()
+        
+        try:
+            choice = input(f"  {Colors.YELLOW}  Your choice [1/2/3]: {Colors.RESET}").strip()
+            
+            if choice == "2":
+                # Continue with new instructions
+                print()
+                new_goal = input(f"  {Colors.GREEN}  📝 What should AI do next? {Colors.RESET}").strip()
+                if new_goal:
+                    self.goal = f"{self.goal}\n\nADDITIONAL USER REQUEST: {new_goal}"
+                    self.kb.add_note(f"User requested: {new_goal}")
+                    Display.success(f"Got it! AI will now: {new_goal[:80]}...")
+                    return True  # Continue scanning
+                else:
+                    Display.info("No new instructions. Generating report...")
+                    return False
+                    
+            elif choice == "3":
+                # Ask AI a question
+                print()
+                question = input(f"  {Colors.CYAN}  ❓ Your question: {Colors.RESET}").strip()
+                if question:
+                    Display.thinking("AI is thinking...")
+                    # Use AI to answer
+                    try:
+                        answer_prompt = f"""
+Based on the security scan of {self.target}, answer this question:
+
+QUESTION: {question}
+
+SCAN DATA:
+- Vulnerabilities found: {total_vulns}
+- Open ports: {open_ports[:5]}
+- Key findings: {[v.get('title', v.get('description', ''))[:50] for v in vulnerabilities[:5]]}
+
+Give a direct, helpful answer. If the question asks for more scanning, suggest specific commands.
+"""
+                        if self.ai.provider == "groq":
+                            answer = self.ai._call_groq(answer_prompt)
+                        else:
+                            answer = self.ai._call_gemini(answer_prompt)
+                        
+                        print()
+                        print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
+                        print(f"  {Colors.BOLD}  🤖 AI ANSWER:{Colors.RESET}")
+                        print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
+                        # Word wrap the answer
+                        words = answer.split()
+                        line = "  "
+                        for word in words:
+                            if len(line) + len(word) > 70:
+                                print(line)
+                                line = "  " + word
+                            else:
+                                line += " " + word
+                        if line.strip():
+                            print(line)
+                        print()
+                        
+                    except Exception as e:
+                        Display.error(f"AI error: {e}")
+                
+                # After answering, ask again
+                return self._interactive_review()
+            
+            else:
+                # Default: generate report
+                return False
+                
+        except (EOFError, KeyboardInterrupt):
+            Display.info("Generating report...")
+            return False
+
     def run(self):
         """
         Run the autonomous scanning loop.
@@ -243,7 +412,16 @@ class ZenithScanner:
                 if summary:
                     Display.info(f"Summary: {summary[:200]}")
                 self.kb.add_note(f"Goal achieved: {summary[:300]}")
-                break
+                
+                # === INTERACTIVE REVIEW ===
+                should_continue = self._interactive_review()
+                if should_continue:
+                    # User wants to continue - reset and keep going
+                    last_output = "User requested additional work. Continue scanning based on new instructions."
+                    continue
+                else:
+                    # User is satisfied - generate report
+                    break
 
             # --- SWITCH PHASE ---
             elif action == "SWITCH_PHASE":

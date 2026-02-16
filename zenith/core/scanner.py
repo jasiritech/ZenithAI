@@ -379,6 +379,28 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
         max_consecutive_errors = 5
         failed_tools = set()      # Track tools that are not installed
         recent_commands = []       # Track recent commands to detect loops
+        command_types = []         # Track 'script' or 'tool' pattern for alternation
+
+        def _is_script(cmd):
+            """Detect if a command is a custom script vs basic tool command."""
+            cmd_stripped = cmd.strip()
+            # Multi-command pipelines with logic = script
+            if cmd_stripped.startswith("bash -c ") or cmd_stripped.startswith("bash -c'"):
+                return True
+            if cmd_stripped.startswith("python3 -c ") or cmd_stripped.startswith('python3 -c"'):
+                return True
+            if cmd_stripped.startswith("python -c "):
+                return True
+            # Commands with for/while loops = script
+            if ' for ' in cmd_stripped and ' do ' in cmd_stripped and ' done' in cmd_stripped:
+                return True
+            # Pipe chains with 3+ stages = script  
+            if cmd_stripped.count(' | ') >= 2:
+                return True
+            # Commands with $( ) subshells = script
+            if '$(' in cmd_stripped and ')' in cmd_stripped and ' | ' in cmd_stripped:
+                return True
+            return False
 
         while self.running and self.iteration < self.max_iterations:
             self.iteration += 1
@@ -522,6 +544,17 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                 if len(recent_commands) > 20:
                     recent_commands = recent_commands[-20:]
                 
+                # === SCRIPT/TOOL ALTERNATION ===
+                # If last 2 commands were both basic tools, force a script
+                is_current_script = _is_script(command)
+                if len(command_types) >= 2 and command_types[-1] == 'tool' and command_types[-2] == 'tool' and not is_current_script:
+                    Display.warning(f"2 basic tools in a row → forcing custom script")
+                    last_output = (f"SYSTEM RULE: You used 2 basic tool commands in a row. "
+                                   f"You MUST now write a custom bash -c '...' or python3 -c '...' script. "
+                                   f"Scripts are more effective: they chain operations, bypass WAF, handle multi-step logic. "
+                                   f"Last tool output was: {last_output[:500] if last_output else 'None'}")
+                    continue
+                
                 # Wrap with proxy if enabled
                 if self.proxy.enabled:
                     command = self.proxy.wrap_command(command)
@@ -545,6 +578,11 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
 
                 # Log to KB
                 self.kb.log_command(command, combined_output, result["success"])
+                
+                # Track command type for alternation
+                command_types.append('script' if _is_script(command) else 'tool')
+                if len(command_types) > 10:
+                    command_types = command_types[-10:]
 
                 # Check for new vulnerabilities
                 old_vuln_count = sum(self.kb.get_vulnerability_count().values())

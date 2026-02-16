@@ -27,7 +27,7 @@ except ImportError:
 class AIBrain:
     """
     AI Brain powered by Gemini or Groq for security scanning decisions.
-    Thinks like a HACKER - selects tools, reads results, finds new attack paths.
+    Thinks like a HACKER - selects tools,writie a script, reads results, finds new attack paths.
     
     Providers:
     - Gemini (Google): Default, good quality
@@ -243,7 +243,9 @@ ABSOLUTE RULES:
 10. curl: -sk --max-time 15
 11. If sqlmap needs CSRF: use --csrf-token and --threads=1 (not 10)
 12. Hydra for web: get fresh CSRF token each time or it gives false positives
-13. PREFER writing custom bash/python scripts over basic tool commands
+13. ALTERNATE: After any basic tool command, your NEXT command MUST be a custom bash/python script
+14. Pattern: tool → script → tool → script (NEVER 2 basic tools in a row)
+15. Scripts = bash -c '...' or python3 -c '...' with loops, pipes, multi-step logic
 
 INSTALLED TOOLS: nmap, nikto, sqlmap, nuclei, ffuf, gobuster, curl, dig, whois, host, assetfinder, hydra, searchsploit, wpscan, sslscan, openssl, dirsearch, grep, jq, python3, bash, sed, awk
 NOT INSTALLED: httpx(Go), dalfox, xsstrike, hakrawler, paramspider, gau, qsreplace, gospider, subfinder, testssl.sh, sublist3r, amass, waybackurls, wapiti, shodan
@@ -389,16 +391,18 @@ for p in paths:
 bash -c 'echo "=== Deep Fingerprint ==="; H=$(curl -skI https://{target}/); echo "SERVER: $(echo "$H" | grep -i ^server: | head -1)"; echo "POWERED: $(echo "$H" | grep -i ^x-powered | head -1)"; BODY=$(curl -sk https://{target}/ | head -100); echo "$BODY" | grep -oiE "(wp-content|wordpress|joomla|drupal|laravel|django|express|rails|angular|react|vue|next|nuxt|jquery-[0-9.]+|bootstrap-[0-9.]+)" | sort -u | while read t; do echo "TECH: $t"; done; echo "GENERATOR: $(echo "$BODY" | grep -oP "content=\\"\\K[^\\"]+" | head -3)"
 
 === SCRIPTING RULES ===
-1. ALWAYS prefer custom scripts over basic single-tool commands
-2. Write bash -c '...' for multi-step operations
-3. Use python3 -c '...' for complex logic (urllib, json parsing, encoding)
-4. Chain operations: extract → analyze → test in ONE command
-5. Custom scripts bypass WAF because they don't have tool signatures
-6. ALWAYS add --max-time to curl inside scripts (prevents hanging)
-7. Use /tmp/z* for temp files (zcookie, zbody, zheaders, zurls)
-8. For login brute: ALWAYS get fresh CSRF token before EACH attempt
-9. Test MULTIPLE payloads per parameter, not just one
-10. Extract info from responses (headers, body, status codes, sizes)
+1. ALTERNATE commands: tool → script → tool → script (NEVER 2 basic tools in a row)
+2. After nmap/nikto/sqlmap/ffuf/etc, MUST write bash -c '...' or python3 -c '...' script next
+3. After a script, you CAN use a basic tool again
+4. Write bash -c '...' for multi-step operations
+5. Use python3 -c '...' for complex logic (urllib, json parsing, encoding)
+6. Chain operations: extract → analyze → test in ONE command
+7. Custom scripts bypass WAF because they don't have tool signatures
+8. ALWAYS add --max-time to curl inside scripts (prevents hanging)
+9. Use /tmp/z* for temp files (zcookie, zbody, zheaders, zurls)
+10. For login brute: ALWAYS get fresh CSRF token before EACH attempt
+11. Test MULTIPLE payloads per parameter, not just one
+12. Extract info from responses (headers, body, status codes, sizes)
 
 === RESPOND WITH JSON ONLY ===
 {{"reasoning":"brief analysis","action":"COMMAND","command":"linux command (NO proxychains!)","phase":"{phase}","expected_outcome":"what we expect"}}

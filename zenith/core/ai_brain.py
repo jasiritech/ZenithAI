@@ -534,30 +534,63 @@ FORMAT 3 - Done:
                 }
             
             # Other errors - fallback action (vary commands to avoid duplicate detection)
-            fallback_commands = [
-                (f"curl -skI https://{target}/ | head -30", "HTTP headers check"),
-                (f"dig ANY {target}", "DNS records lookup"),
-                (f"whois {target} | head -40", "WHOIS information"),
-                (f'bash -c \'for p in .env .git/HEAD robots.txt sitemap.xml; do CODE=$(curl -sk -o /dev/null -w "%{{http_code}}" "https://{target}/$p" --max-time 10); [ "$CODE" != "404" ] && [ "$CODE" != "000" ] && echo "$p -> $CODE"; done\'', "Sensitive file discovery"),
-                (f"sslscan --no-colour {target} | head -40", "SSL/TLS scan"),
-                (f"nikto -h https://{target} -maxtime 120 -C all", "Web vulnerability scan"),
-            ]
             import random
-            cmd, outcome = random.choice(fallback_commands)
-            return {
-                "reasoning": f"AI error occurred: {error_msg[:100]}. Using fallback command.",
-                "action": "COMMAND",
-                "command": cmd,
-                "phase": phase,
-                "expected_outcome": outcome
-            }
+            fallback_options = [
+                {
+                    "reasoning": f"AI error: {error_msg[:80]}. Fallback: HTTP headers.",
+                    "action": "COMMAND",
+                    "command": f"curl -skI https://{target}/ | head -30",
+                    "phase": phase,
+                    "expected_outcome": "HTTP headers check"
+                },
+                {
+                    "reasoning": f"AI error: {error_msg[:80]}. Fallback: DNS.",
+                    "action": "COMMAND",
+                    "command": f"dig ANY {target}",
+                    "phase": phase,
+                    "expected_outcome": "DNS records lookup"
+                },
+                {
+                    "reasoning": f"AI error: {error_msg[:80]}. Fallback: WHOIS.",
+                    "action": "COMMAND",
+                    "command": f"whois {target} | head -40",
+                    "phase": phase,
+                    "expected_outcome": "WHOIS information"
+                },
+                {
+                    "reasoning": f"AI error: {error_msg[:80]}. Fallback: sensitive files.",
+                    "action": "SCRIPT",
+                    "script_type": "bash",
+                    "script": f"#!/bin/bash\ntarget=\"{target}\"\necho '=== Sensitive Files ==='\nfor p in .env .git/HEAD robots.txt sitemap.xml .htaccess server-status; do\n  CODE=$(curl -sk -o /dev/null -w '%{{http_code}}' \"https://$target/$p\" --max-time 10)\n  [ \"$CODE\" != \"404\" ] && [ \"$CODE\" != \"000\" ] && echo \"$p -> $CODE\"\ndone",
+                    "phase": phase,
+                    "expected_outcome": "Sensitive file discovery"
+                },
+                {
+                    "reasoning": f"AI error: {error_msg[:80]}. Fallback: SSL.",
+                    "action": "COMMAND",
+                    "command": f"sslscan --no-colour {target} | head -40",
+                    "phase": phase,
+                    "expected_outcome": "SSL/TLS scan"
+                },
+                {
+                    "reasoning": f"AI error: {error_msg[:80]}. Fallback: nikto.",
+                    "action": "COMMAND",
+                    "command": f"nikto -h https://{target} -maxtime 120 -C all",
+                    "phase": phase,
+                    "expected_outcome": "Web vulnerability scan"
+                },
+            ]
+            return random.choice(fallback_options)
 
     def _fallback_decision(self, target, phase):
-        """Generate a varied fallback command when JSON parsing fails."""
-        import random
+        """Generate a varied fallback command when JSON parsing fails.
+        Uses a rotating index to avoid repeating the same fallback."""
+        if not hasattr(self, '_fallback_index'):
+            self._fallback_index = 0
+        
         fallback_options = [
             {
-                "reasoning": "JSON parse failed - running sensitive file discovery script",
+                "reasoning": "JSON parse failed - sensitive file discovery",
                 "action": "SCRIPT",
                 "script_type": "bash",
                 "script": f"#!/bin/bash\ntarget=\"{target}\"\necho '=== Sensitive File Scan ==='\nfor p in .env .git/HEAD .git/config robots.txt sitemap.xml .htaccess wp-config.php.bak server-status phpinfo.php .well-known/security.txt api/v1 graphql; do\n  RESP=$(curl -sk -o /dev/null -w '%{{http_code}}:%{{size_download}}' \"https://$target/$p\" --max-time 10 2>/dev/null)\n  HTTP=$(echo \"$RESP\" | cut -d: -f1)\n  SIZE=$(echo \"$RESP\" | cut -d: -f2)\n  [ \"$HTTP\" != \"404\" ] && [ \"$HTTP\" != \"000\" ] && [ \"$SIZE\" != \"0\" ] && echo \"$p -> HTTP $HTTP ($SIZE bytes)\"\ndone",
@@ -565,7 +598,7 @@ FORMAT 3 - Done:
                 "expected_outcome": "Discover exposed sensitive files"
             },
             {
-                "reasoning": "JSON parse failed - running security header audit script",
+                "reasoning": "JSON parse failed - security header audit",
                 "action": "SCRIPT",
                 "script_type": "bash",
                 "script": f"#!/bin/bash\ntarget=\"{target}\"\necho '=== Security Headers ==='\nH=$(curl -skI \"https://$target/\")\necho \"$H\" | head -20\necho '--- Missing Headers ---'\nfor h in X-Frame-Options Content-Security-Policy X-XSS-Protection Strict-Transport-Security X-Content-Type-Options Referrer-Policy Permissions-Policy; do\n  echo \"$H\" | grep -qi \"$h\" || echo \"MISSING: $h\"\ndone",
@@ -573,7 +606,7 @@ FORMAT 3 - Done:
                 "expected_outcome": "Identify missing security headers"
             },
             {
-                "reasoning": "JSON parse failed - running subdomain discovery",
+                "reasoning": "JSON parse failed - subdomain discovery",
                 "action": "SCRIPT",
                 "script_type": "bash",
                 "script": f"#!/bin/bash\ntarget=\"{target}\"\necho '=== Subdomain Discovery ==='\nfor sub in www mail ftp admin dev staging api test vpn portal app cdn beta internal git monitor status blog; do\n  ip=$(dig +short $sub.$target 2>/dev/null | head -1)\n  [ -n \"$ip\" ] && echo \"FOUND: $sub.$target -> $ip\"\ndone",
@@ -581,36 +614,98 @@ FORMAT 3 - Done:
                 "expected_outcome": "Discover subdomains"
             },
             {
-                "reasoning": "JSON parse failed - running web technology fingerprint",
+                "reasoning": "JSON parse failed - HTTP headers",
                 "action": "COMMAND",
                 "command": f"curl -skI https://{target}/ | head -30",
                 "phase": phase,
                 "expected_outcome": "HTTP headers and server info"
             },
             {
-                "reasoning": "JSON parse failed - running DNS enumeration",
+                "reasoning": "JSON parse failed - DNS enumeration",
                 "action": "COMMAND",
                 "command": f"dig ANY {target}",
                 "phase": phase,
                 "expected_outcome": "DNS records"
             },
             {
-                "reasoning": "JSON parse failed - running SSL scan",
+                "reasoning": "JSON parse failed - SSL scan",
                 "action": "COMMAND",
                 "command": f"sslscan --no-colour {target} | head -40",
                 "phase": phase,
                 "expected_outcome": "SSL/TLS configuration"
             },
             {
-                "reasoning": "JSON parse failed - running Python path scanner",
+                "reasoning": "JSON parse failed - Python path scanner",
                 "action": "SCRIPT",
                 "script_type": "python",
                 "script": f"import urllib.request, ssl\nctx = ssl._create_unverified_context()\ntarget = '{target}'\npaths = ['.env', '.git/config', 'robots.txt', 'sitemap.xml', 'api/v1', 'graphql', 'wp-json/wp/v2/users', 'actuator/env', 'swagger/v1/swagger.json']\nprint('=== Path Scanner ===')\nfor p in paths:\n    try:\n        r = urllib.request.urlopen(f'https://{{target}}/{{p}}', context=ctx, timeout=10)\n        print(f'[{{r.status}}] /{{p}}')\n    except urllib.error.HTTPError as e:\n        if e.code != 404: print(f'[{{e.code}}] /{{p}}')\n    except: pass",
                 "phase": phase,
                 "expected_outcome": "Discover accessible paths"
             },
+            {
+                "reasoning": "JSON parse failed - nmap quick scan",
+                "action": "COMMAND",
+                "command": f"nmap -sV -T4 -F {target}",
+                "phase": phase,
+                "expected_outcome": "Quick port and service discovery"
+            },
+            {
+                "reasoning": "JSON parse failed - certificate transparency",
+                "action": "SCRIPT",
+                "script_type": "bash",
+                "script": f"#!/bin/bash\ntarget=\"{target}\"\necho '=== Certificate Transparency ==='\ncurl -sk \"https://crt.sh/?q=%25.$target&output=json\" --max-time 20 2>/dev/null | python3 -c \"import sys,json; [print(x.get('name_value','')) for x in json.load(sys.stdin)]\" 2>/dev/null | sort -u | head -30",
+                "phase": phase,
+                "expected_outcome": "Find subdomains via certificate transparency"
+            },
+            {
+                "reasoning": "JSON parse failed - nuclei scan",
+                "action": "COMMAND",
+                "command": f"nuclei -u https://{target} -severity critical,high -silent",
+                "phase": phase,
+                "expected_outcome": "Find critical/high vulnerabilities"
+            },
+            {
+                "reasoning": "JSON parse failed - directory bruteforce",
+                "action": "COMMAND",
+                "command": f"gobuster dir -u https://{target} -w /usr/share/wordlists/dirb/common.txt -t 30 -q --no-error -k",
+                "phase": phase,
+                "expected_outcome": "Discover hidden directories"
+            },
+            {
+                "reasoning": "JSON parse failed - WHOIS lookup",
+                "action": "COMMAND",
+                "command": f"whois {target} | head -50",
+                "phase": phase,
+                "expected_outcome": "Domain registration info"
+            },
+            {
+                "reasoning": "JSON parse failed - parameter fuzzing",
+                "action": "SCRIPT",
+                "script_type": "bash",
+                "script": f"#!/bin/bash\ntarget=\"{target}\"\necho '=== Parameter Fuzzing ==='\nfor p in id user admin page file path cmd search query url redirect next callback action type format debug test token key api; do\n  r=$(curl -sk -o /dev/null -w '%{{http_code}}:%{{size_download}}' \"https://$target/?$p=test123zenith\" --max-time 10)\n  echo \"$p -> $r\"\ndone",
+                "phase": phase,
+                "expected_outcome": "Discover active parameters"
+            },
+            {
+                "reasoning": "JSON parse failed - assetfinder subdomains",
+                "action": "COMMAND",
+                "command": f"assetfinder --subs-only {target} | head -30",
+                "phase": phase,
+                "expected_outcome": "Discover subdomains via assetfinder"
+            },
+            {
+                "reasoning": "JSON parse failed - cookie security check",
+                "action": "SCRIPT",
+                "script_type": "bash",
+                "script": f"#!/bin/bash\ntarget=\"{target}\"\necho '=== Cookie Security Audit ==='\ncurl -skI \"https://$target/\" | grep -i 'set-cookie' | while read line; do\n  echo \"Cookie: $line\"\n  echo \"$line\" | grep -qi httponly || echo \"  WARNING: Missing HttpOnly\"\n  echo \"$line\" | grep -qi secure || echo \"  WARNING: Missing Secure\"\n  echo \"$line\" | grep -qi samesite || echo \"  WARNING: Missing SameSite\"\ndone\necho '--- Done ---'",
+                "phase": phase,
+                "expected_outcome": "Check cookie security flags"
+            },
         ]
-        return random.choice(fallback_options)
+        # Rotate through options sequentially to avoid duplicates
+        choice = fallback_options[self._fallback_index % len(fallback_options)]
+        self._fallback_index += 1
+        return choice
 
     def _call_groq(self, prompt):
         """Call Groq API and return response text."""
@@ -744,7 +839,29 @@ FORMAT 3 - Done:
         Try to switch to a different working model.
         Returns True if successful, False if no model works.
         """
-        # Build a list of all models we haven't tried yet
+        if self.provider == "groq":
+            # Try other Groq models
+            for model_name in self.GROQ_MODELS:
+                if model_name == self.model_name:
+                    continue
+                try:
+                    print(f"    [*] Trying Groq fallback: {model_name}...")
+                    response = self.groq_client.chat.completions.create(
+                        model=model_name,
+                        messages=[{"role": "user", "content": "Reply with OK"}],
+                        max_tokens=10
+                    )
+                    _ = response.choices[0].message.content
+                    self.model_name = model_name
+                    self.chat_history = []
+                    print(f"    [✓] Switched to Groq model: {model_name}")
+                    return True
+                except Exception:
+                    continue
+            print("    [!] No fallback Groq model available!")
+            return False
+        
+        # Gemini fallback
         all_models = []
         for chain in self.MODEL_CHAINS.values():
             for m in chain:
@@ -787,14 +904,18 @@ FORMAT 3 - Done:
         """
         AI analyzes all findings and generates a comprehensive report.
         """
+        # Truncate KB for Groq (small context) vs Gemini (large context)
+        max_kb = 2000 if self.provider == "groq" else 10000
+        kb_str = json.dumps(knowledge_base, indent=2, default=str)[:max_kb]
+        
         prompt = f"""
 Analyze all the security findings from this penetration test and create a detailed report.
 
 Target: {target}
 Goal: {goal}
 
-Full Knowledge Base:
-{json.dumps(knowledge_base, indent=2, default=str)}
+Knowledge Base:
+{kb_str}
 
 Create a comprehensive security report in this JSON format:
 {{

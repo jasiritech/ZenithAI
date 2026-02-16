@@ -452,15 +452,21 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                 action = "GOAL_ACHIEVED"
             elif action_upper in ("SWITCH_PHASE", "SWITCHPHASE", "PHASE_SWITCH"):
                 action = "SWITCH_PHASE"
-            elif action_upper not in ("COMMAND", "GOAL_ACHIEVED", "SWITCH_PHASE", "ANALYZE"):
+            elif action_upper in ("SCRIPT", "RUN_SCRIPT", "WRITE_SCRIPT", "EXECUTE_SCRIPT", "BASH_SCRIPT", "PYTHON_SCRIPT"):
+                action = "SCRIPT"
+            elif action_upper not in ("COMMAND", "GOAL_ACHIEVED", "SWITCH_PHASE", "SCRIPT", "ANALYZE"):
                 # AI invented a custom action (DNS_RESOLUTION, PORT_SCAN, etc.)
+                # If it has a 'script' field, treat as SCRIPT
+                if decision.get("script"):
+                    Display.warning(f"Unknown action '{action}' with script field → treating as SCRIPT")
+                    action = "SCRIPT"
                 # If it has a command field, treat it as COMMAND
-                if decision.get("command"):
+                elif decision.get("command"):
                     Display.warning(f"Unknown action '{action}' → treating as COMMAND")
                     action = "COMMAND"
                 else:
-                    Display.warning(f"Unknown action '{action}' with no command, asking AI to retry")
-                    last_output = f"ERROR: Invalid action '{action}'. Use only: COMMAND, SWITCH_PHASE, or GOAL_ACHIEVED."
+                    Display.warning(f"Unknown action '{action}' with no command/script, asking AI to retry")
+                    last_output = f"ERROR: Invalid action '{action}'. Use COMMAND (with 'command' field) or SCRIPT (with 'script' and 'script_type' fields), or GOAL_ACHIEVED, or SWITCH_PHASE."
                     continue
 
             # ═══════════════════════════════════════
@@ -721,7 +727,7 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
 
             else:
                 Display.warning(f"Unknown action: {action}")
-                last_output = f"Unknown action '{action}'. Please use COMMAND, SWITCH_PHASE, or GOAL_ACHIEVED."
+                last_output = f"Unknown action '{action}'. Use COMMAND (with 'command'), SCRIPT (with 'script'+'script_type'), SWITCH_PHASE, or GOAL_ACHIEVED."
 
             # Check if we should auto-switch phase
             if self.phase_iteration >= self.MAX_PHASE_ITERATIONS:

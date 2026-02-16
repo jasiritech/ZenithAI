@@ -46,13 +46,13 @@ class AIBrain:
         ],
     }
     
-    # Groq models - FAST and FREE!
-    # mixtral has 32k context, llama has 8k
+    # Groq models - FAST and FREE! (Updated Feb 2026)
+    # Production models with good context windows
     GROQ_MODELS = [
-        "mixtral-8x7b-32768",         # 32k context - best for long prompts!
-        "llama-3.1-8b-instant",       # 8k but fast
-        "llama-3.3-70b-versatile",    # Best quality but 8k limit
-        "llama-3.1-70b-versatile",    # Fallback
+        "llama-3.3-70b-versatile",    # Best quality, 131k ctx, 32k output
+        "llama-3.1-8b-instant",       # Fast, 131k ctx
+        "qwen/qwen3-32b",             # Good alternative, 131k ctx
+        "meta-llama/llama-4-scout-17b-16e-instruct",  # Llama 4! 131k ctx
     ]
 
     # Keep for backward compat - points to first in chain

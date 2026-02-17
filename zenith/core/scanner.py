@@ -870,6 +870,22 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
         
         print(f"\n  {Colors.GREEN}{Colors.BOLD}Scan complete! Check reports for full details.{Colors.RESET}\n")
 
+        # Show report locations
+        Display.subsection("📄 REPORT LOCATIONS")
+        Display.info(f"Working Directory: {self.working_dir}")
+        Display.info(f"KB Report: {kb_report_file}")
+        Display.info(f"AI Analysis: {ai_report_file}")
+        if 'html_file' in locals():
+            Display.info(f"HTML Report: {html_file}")
+            # Auto-open on Windows
+            if sys.platform == "win32":
+                try:
+                    import webbrowser
+                    webbrowser.open(f"file:///{html_file}")
+                    Display.success("💡 HTML report opened in browser!")
+                except:
+                    pass
+
         # Mark session complete
         self.session_mgr.mark_completed(self.session_id)
         self.session_mgr.save_state(

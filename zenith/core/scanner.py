@@ -107,10 +107,10 @@ class ZenithScanner:
         self.ai = AIBrain(api_key, model_choice=model)
         
         Display.info("Initializing Terminal Executor...")
-        self.executor = TerminalExecutor(working_dir=working_dir, sudo_password=sudo_password)
+        self.executor = TerminalExecutor(working_dir=self.working_dir, sudo_password=sudo_password)
         
         Display.info("Initializing Knowledge Base...")
-        self.kb = KnowledgeBase(target, save_dir=working_dir)
+        self.kb = KnowledgeBase(target, save_dir=self.working_dir)
 
         # Initialize Command Validator
         Display.info("Initializing Command Validator...")

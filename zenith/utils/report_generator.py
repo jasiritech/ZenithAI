@@ -5,6 +5,7 @@ Generates standalone HTML reports with charts, severity breakdowns, and detailed
 
 import json
 import os
+import tempfile
 from datetime import datetime
 
 
@@ -30,8 +31,9 @@ class HTMLReportGenerator:
         if not output_file:
             safe_target = "".join(c if c.isalnum() or c in "-_." else "_" for c in scan_info.get("target", "unknown"))
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            base_dir = scan_info.get("working_dir") or tempfile.gettempdir()
             output_file = os.path.join(
-                scan_info.get("working_dir", "/tmp"),
+                base_dir,
                 f"{safe_target}_report_{timestamp}.html"
             )
 

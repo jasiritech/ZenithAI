@@ -7,6 +7,7 @@ import json
 import os
 import re
 import time
+import tempfile
 from datetime import datetime
 
 
@@ -16,11 +17,13 @@ class KnowledgeBase:
     The AI reads this to know what has been discovered and choose the next action.
     """
 
-    def __init__(self, target, save_dir="/tmp/zenith_workspace"):
+    def __init__(self, target, save_dir=None):
         """Initialize Knowledge Base."""
         self.target = target
+        if not save_dir:
+            save_dir = os.path.join(tempfile.gettempdir(), "zenith_workspace")
         self.save_dir = save_dir
-        os.makedirs(save_dir, exist_ok=True)
+        os.makedirs(self.save_dir, exist_ok=True)
         
         # Clean target name for filename
         safe_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', target)

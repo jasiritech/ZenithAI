@@ -8,6 +8,7 @@ import time
 import os
 import sys
 import signal
+import tempfile
 from datetime import datetime, timedelta
 
 from zenith.core.ai_brain import AIBrain
@@ -73,8 +74,11 @@ class ZenithScanner:
         self.api_key = api_key
         self.model_choice = model
         
-        working_dir = working_dir or f"/tmp/zenith_{int(time.time())}"
-        self.working_dir = working_dir
+        if working_dir:
+            self.working_dir = working_dir
+        else:
+            base_tmp = tempfile.gettempdir()
+            self.working_dir = os.path.join(base_tmp, f"zenith_{int(time.time())}")
 
         # Initialize Session Manager
         Display.info("Initializing Session Manager...")

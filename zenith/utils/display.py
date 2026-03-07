@@ -142,11 +142,28 @@ class Display:
     @staticmethod
     def stats(ai_stats, exec_stats, vuln_counts, elapsed):
         """Print current statistics."""
-        print(f"\n  {Colors.DIM}{'─' * 50}{Colors.RESET}")
-        print(f"  {Colors.CYAN}📊 Stats:{Colors.RESET} "
-              f"AI calls: {ai_stats.get('total_calls', 0)} │ "
-              f"Commands: {exec_stats.get('total_commands', 0)} │ "
-              f"Time: {elapsed}")
+        total_cmd = exec_stats.get('total_commands', 0)
+        failed_cmd = exec_stats.get('failed_commands', 0)
+        success_rate = exec_stats.get('success_rate', '0.0%')
+        avg_duration = exec_stats.get('avg_duration', 0)
+        cache_hits = exec_stats.get('cache_hits', 0)
+
+        print(f"\n  {Colors.DIM}{'─' * 70}{Colors.RESET}")
+        print(f"  {Colors.CYAN}{Colors.BOLD}📊 LIVE DASHBOARD{Colors.RESET}"
+              f"  {Colors.DIM}|{Colors.RESET} "
+              f"🧠 AI Calls: {ai_stats.get('total_calls', 0)}"
+              f"  {Colors.DIM}|{Colors.RESET} "
+              f"💻 Cmd: {total_cmd}"
+              f"  {Colors.DIM}|{Colors.RESET} "
+              f"❌ Fail: {failed_cmd}"
+              f"  {Colors.DIM}|{Colors.RESET} "
+              f"✅ {success_rate}"
+              f"  {Colors.DIM}|{Colors.RESET} "
+              f"⏱ Avg: {avg_duration}s"
+              f"  {Colors.DIM}|{Colors.RESET} "
+              f"⚡ Cache: {cache_hits}"
+              f"  {Colors.DIM}|{Colors.RESET} "
+              f"🕒 {elapsed}")
         
         vuln_str = ""
         if vuln_counts.get("CRITICAL", 0) > 0:
@@ -160,7 +177,7 @@ class Display:
         
         if vuln_str:
             print(f"  {Colors.CYAN}🔓 Vulns:{Colors.RESET}{vuln_str}")
-        print(f"  {Colors.DIM}{'─' * 50}{Colors.RESET}")
+        print(f"  {Colors.DIM}{'─' * 70}{Colors.RESET}")
 
     @staticmethod
     def final_report(report_data, report_file):

@@ -6,6 +6,20 @@ Quick, Full, Stealth, Web-Only, Network-Only, and Custom profiles.
 
 # Each profile defines default settings that override the scanner behavior
 PROFILES = {
+    "turbo": {
+        "name": "🚀 Turbo Scan",
+        "description": "High-speed modern scan optimized for fast actionable findings.",
+        "max_iterations": 40,
+        "goal_template": (
+            "Perform a TURBO security scan on {target}. "
+            "Prioritize fast, high-signal checks first: "
+            "quick port/service fingerprinting, sensitive path checks, "
+            "security headers, API endpoint discovery, and critical/high vulnerability checks. "
+            "Avoid slow exhaustive sweeps unless strongly justified by evidence."
+        ),
+        "phases": ["recon", "scan", "report"],
+        "timeout_per_command": 90,
+    },
     "quick": {
         "name": "⚡ Quick Scan",
         "description": "Fast surface-level scan. Good for a first look.",

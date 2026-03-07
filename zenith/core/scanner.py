@@ -17,6 +17,7 @@ from zenith.core.knowledge_base import KnowledgeBase
 from zenith.core.session import SessionManager
 from zenith.core.validator import CommandValidator
 from zenith.core.proxy import ProxyManager
+from zenith.core.profiles import get_profile
 from zenith.utils.display import Display, Colors
 from zenith.utils.report_generator import HTMLReportGenerator
 from zenith.utils.notifier import Notifier
@@ -73,6 +74,8 @@ class ZenithScanner:
         self.profile_name = profile or "custom"
         self.api_key = api_key
         self.model_choice = model
+        profile_data = get_profile(self.profile_name) if self.profile_name != "custom" else None
+        self.profile_timeout = profile_data.get("timeout_per_command") if profile_data else None
         
         if working_dir:
             self.working_dir = working_dir
@@ -107,7 +110,12 @@ class ZenithScanner:
         self.ai = AIBrain(api_key, model_choice=model)
         
         Display.info("Initializing Terminal Executor...")
-        self.executor = TerminalExecutor(working_dir=self.working_dir, sudo_password=sudo_password)
+        self.executor = TerminalExecutor(
+            working_dir=self.working_dir,
+            sudo_password=sudo_password,
+            default_timeout=self.profile_timeout,
+            profile=self.profile_name,
+        )
         
         Display.info("Initializing Knowledge Base...")
         self.kb = KnowledgeBase(target, save_dir=self.working_dir)

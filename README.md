@@ -134,11 +134,13 @@ deactivate
 | 🛡️ **Command Validation** | Blocks dangerous commands & validates target scope |
 | 🎯 **Target Validation** | Prevents accidental shell commands as targets |
 | 📂 **Scan Profiles** | Quick, Full, Stealth, Web, Network, API, Recon-Only |
+| 🚀 **Turbo Profile** | High-speed profile for fast actionable results |
 | 💾 **Session Resume** | Save & resume interrupted scans anytime |
 | 🔒 **Proxy / Tor Support** | Route traffic through Tor, SOCKS5, or proxychains |
 | 📱 **Notifications** | Telegram, Discord, Slack alerts on findings |
 | 🧠 **Model Fallback** | Auto-switches to working Gemini model if one fails |
-| 🎨 **Beautiful UI** | Colored terminal output with real-time stats |
+| 🎨 **Modern Live Dashboard** | Real-time terminal dashboard (AI calls, success rate, avg duration, cache hits) |
+| ⚡ **Smart Executor Cache** | Reuses recent read-only command results for faster loops |
 
 ---
 
@@ -152,7 +154,7 @@ Options:
   -k, --api-key        Gemini API key
   -m, --model          AI model: 'pro' or 'flash' (default: flash)
   -g, --goal           Scanning goal description
-  -p, --profile        Scan profile: quick, full, stealth, web, network, api, recon-only
+  -p, --profile        Scan profile: turbo, quick, full, stealth, web, network, api, recon-only
   -i, --max-iterations Maximum AI iterations (default: 100)
   -o, --output-dir     Output directory for reports
   --config             Path to JSON config file
@@ -166,6 +168,7 @@ Options:
 
 | Profile | Description | Max Iterations |
 |---------|-------------|----------------|
+| 🚀 `turbo` | High-speed modern scan | 40 |
 | ⚡ `quick` | Fast surface-level scan | 30 |
 | 🔥 `full` | Comprehensive deep scan | 150 |
 | 🥷 `stealth` | Low and slow, avoids IDS/WAF | 80 |

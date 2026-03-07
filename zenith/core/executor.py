@@ -28,19 +28,26 @@ class TerminalExecutor:
         "chmod -R 777 /",
     ]
 
-    def __init__(self, working_dir="/tmp/zenith_workspace", sudo_password=None):
+    def __init__(self, working_dir="/tmp/zenith_workspace", sudo_password=None, default_timeout=None, profile="custom"):
         """Initialize Terminal Executor."""
         self.working_dir = working_dir
         self.command_history = []
         self.total_commands = 0
         self.failed_commands = 0
+        self.cache_hits = 0
         self.current_process = None  # Track running subprocess for Ctrl+C kill
         self.sudo_password = sudo_password  # Optional sudo password for automated execution
+        self.default_timeout = default_timeout
+        self.profile = profile
+        self.command_cache = {}
+        self.cache_ttl = 300
         
         # Create working directory
         os.makedirs(working_dir, exist_ok=True)
         
         print(f"    [✓] Terminal Executor ready (workspace: {working_dir})")
+        if default_timeout:
+            print(f"    [⚡] Fast mode timeout profile: {default_timeout}s default")
         if sudo_password:
             print(f"    [✓] Sudo password configured (commands will run with privileges)")
 
@@ -137,7 +144,42 @@ class TerminalExecutor:
         for pattern in sorted(self.COMMAND_TIMEOUTS.keys(), key=len, reverse=True):
             if pattern in cmd_lower:
                 return self.COMMAND_TIMEOUTS[pattern]
-        return 300  # Default 5 minutes - let commands finish
+        return self.default_timeout or 300  # Default 5 minutes - let commands finish
+
+    def _is_cacheable_command(self, command):
+        """Cache only read-style commands to speed up repeated scan loops."""
+        cmd = command.strip().lower()
+        write_indicators = [" apt ", " install ", " rm ", " mv ", " cp ", " >", " >>", " tee ", " chmod ", " chown "]
+        if any(x in f" {cmd} " for x in write_indicators):
+            return False
+        if cmd.startswith("sudo "):
+            return False
+        return True
+
+    def _get_cached_result(self, command):
+        """Return cached successful result if still fresh."""
+        if not self._is_cacheable_command(command):
+            return None
+        entry = self.command_cache.get(command)
+        if not entry:
+            return None
+        age = time.time() - entry["ts"]
+        if age > self.cache_ttl:
+            return None
+        self.cache_hits += 1
+        cached = dict(entry["result"])
+        cached["cached"] = True
+        cached["duration"] = 0.0
+        cached["output"] = (cached.get("output", "") or "") + "\n\n[cache] reused recent result"
+        return cached
+
+    def _set_cached_result(self, command, result):
+        """Cache successful read-style command output."""
+        if not result.get("success"):
+            return
+        if not self._is_cacheable_command(command):
+            return
+        self.command_cache[command] = {"ts": time.time(), "result": dict(result)}
 
     def _wrap_sudo(self, command):
         """
@@ -178,6 +220,12 @@ class TerminalExecutor:
         # Auto-detect smart timeout if not specified
         if timeout is None:
             timeout = self._get_smart_timeout(command)
+
+        cached_result = self._get_cached_result(command)
+        if cached_result is not None:
+            self.total_commands += 1
+            self._log_command(command, cached_result)
+            return cached_result
 
         # Safety check
         is_safe, reason = self.is_safe(command)
@@ -343,6 +391,7 @@ class TerminalExecutor:
                 "command": command
             }
 
+            self._set_cached_result(command, result)
             self._log_command(command, result)
             return result
 
@@ -425,9 +474,13 @@ class TerminalExecutor:
 
     def get_stats(self):
         """Return execution statistics."""
+        total_duration = sum(h.get("duration", 0) for h in self.command_history)
+        avg_duration = (total_duration / max(len(self.command_history), 1))
         return {
             "total_commands": self.total_commands,
             "failed_commands": self.failed_commands,
             "success_rate": f"{((self.total_commands - self.failed_commands) / max(self.total_commands, 1)) * 100:.1f}%",
-            "history_size": len(self.command_history)
+            "history_size": len(self.command_history),
+            "cache_hits": self.cache_hits,
+            "avg_duration": round(avg_duration, 2),
         }

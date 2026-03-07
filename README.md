@@ -133,8 +133,9 @@ deactivate
 | 📋 **HTML Reports** | Beautiful standalone HTML security reports |
 | 🛡️ **Command Validation** | Blocks dangerous commands & validates target scope |
 | 🎯 **Target Validation** | Prevents accidental shell commands as targets |
-| 📂 **Scan Profiles** | Quick, Full, Stealth, Web, Network, API, Recon-Only |
+| 📂 **Scan Profiles** | Quick, Full, Deep, Stealth, Web, Network, API, Recon-Only |
 | 🚀 **Turbo Profile** | High-speed profile for fast actionable results |
+| 🧠 **Deep Profile** | Advanced attack modules (IDOR, SSRF, JWT, SSTI, Race Conditions) |
 | 💾 **Session Resume** | Save & resume interrupted scans anytime |
 | 🔒 **Proxy / Tor Support** | Route traffic through Tor, SOCKS5, or proxychains |
 | 📱 **Notifications** | Telegram, Discord, Slack alerts on findings |
@@ -170,12 +171,27 @@ Options:
 |---------|-------------|----------------|
 | 🚀 `turbo` | High-speed modern scan | 40 |
 | ⚡ `quick` | Fast surface-level scan | 30 |
+| 🧠 `deep` | Advanced modules (IDOR, SSRF, JWT, SSTI, Race) | 120 |
 | 🔥 `full` | Comprehensive deep scan | 150 |
 | 🥷 `stealth` | Low and slow, avoids IDS/WAF | 80 |
 | 🌐 `web` | Web app focused (SQLi, XSS, LFI) | 100 |
 | 🔌 `network` | Network services & ports | 80 |
 | 🔗 `api` | REST/GraphQL API testing | 80 |
 | 🔍 `recon-only` | Recon only, no exploitation | 50 |
+
+### 🧠 Advanced Attack Modules
+
+Zenith includes 5 professional-grade attack modules that the AI automatically uses:
+
+| Module | What It Does | Severity |
+|--------|-------------|----------|
+| **IDOR Scanner** | Tests API endpoints for Insecure Direct Object References by manipulating IDs | 🔴 HIGH-CRITICAL |
+| **SSRF Scanner** | Tests for Server-Side Request Forgery (AWS metadata, internal services, bypass techniques) | 🔴 CRITICAL |
+| **JWT Attacker** | Tests JWT tokens for alg:none bypass, weak secrets, kid injection, expired token acceptance | 🔴 CRITICAL |
+| **SSTI Scanner** | Tests for Server-Side Template Injection across 10+ engines (Jinja2, Twig, ERB → RCE) | 🔴 CRITICAL |
+| **Race Condition** | Tests for concurrency bugs (double-spend, coupon abuse, rate limit bypass) | 🔴 HIGH-CRITICAL |
+
+Modules are automatically used when running `deep` or `full` profiles, or the AI may choose them during any scan.
 
 ---
 
@@ -224,6 +240,14 @@ ZenithAI/
     │   ├── profiles.py      # 📂 Scan profile templates
     │   ├── validator.py     # 🛡️  Command validation & sanitization
     │   └── proxy.py         # 🔒 Proxy/Tor traffic routing
+    │
+    ├── modules/             # 🧠 Advanced Attack Modules
+    │   ├── __init__.py
+    │   ├── idor_scanner.py  # 🔴 IDOR/BOLA vulnerability scanner
+    │   ├── ssrf_scanner.py  # 🔴 SSRF (cloud metadata, internal services)
+    │   ├── jwt_attacks.py   # 🔴 JWT alg:none, weak secrets, kid injection
+    │   ├── ssti_scanner.py  # 🔴 SSTI → RCE (Jinja2, Twig, ERB, etc.)
+    │   └── race_condition.py # 🔴 Race conditions, double-spend, rate limits
     │
     └── utils/
         ├── __init__.py

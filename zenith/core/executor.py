@@ -368,9 +368,21 @@ class TerminalExecutor:
             if "no such file or directory" in all_output_lower or "file not found" in all_output_lower:
                 output_enhanced += "\n💡 TIP: Check file exists first with: test -f /path/to/file && echo EXISTS || echo MISSING"
             
-            # Detect connection refused - tell AI to stop retrying this target
+            # Detect connection refused - differentiate PROXY failure vs TARGET blocking
             if "connection refused" in all_output_lower:
-                output_enhanced += "\n⚠️ TARGET IS BLOCKING CONNECTIONS. Switch to passive OSINT (whois, dig, crt.sh, wayback) instead of retrying active scans."
+                cmd_lower = command.lower()
+                is_proxied = any(p in cmd_lower for p in ["proxychains", "torsocks"])
+                # Check if error is from proxy itself (SOCKS connect, proxy port)
+                is_proxy_error = any(x in all_output_lower for x in [
+                    "socks", "proxy", "proxyconnection", "generalssocksserverfailure",
+                    "connect to 127.0.0.1", "connect to localhost"
+                ])
+                if is_proxied or is_proxy_error:
+                    output_enhanced += "\n🔌 PROXY IS DOWN (Connection refused through proxy/Tor). The SOCKS proxy is not running or not reachable."
+                    output_enhanced += "\n💡 Use tools that bypass proxy: dig, host, nslookup, whois (direct DNS). Or disable proxy."
+                    output_enhanced += "\n💡 For direct HTTP without proxy, the system will auto-disable proxy after repeated failures."
+                else:
+                    output_enhanced += "\n⚠️ TARGET IS BLOCKING CONNECTIONS. Switch to passive OSINT (whois, dig, crt.sh, wayback) instead of retrying active scans."
             
             # Detect tool not found 
             if "not found" in all_output_lower and ("command not found" in all_output_lower or "/bin/sh" in all_output_lower or "no such file" in all_output_lower):

@@ -126,6 +126,7 @@ class ZenithScanner:
 
         # Initialize Proxy Manager
         self.proxy = ProxyManager(proxy_config) if proxy_config else ProxyManager.from_env()
+        self.proxy_auto_disabled = False  # Track if proxy was auto-disabled
         if self.proxy.enabled:
             Display.info(f"Proxy: {self.proxy.get_status()}")
             ok, msg = self.proxy.verify()
@@ -133,6 +134,10 @@ class ZenithScanner:
                 Display.success(f"Proxy verified: {msg}")
             else:
                 Display.warning(f"Proxy verification failed: {msg}")
+                Display.warning(f"⚠ Disabling proxy - commands will run with DIRECT connections.")
+                Display.warning(f"💡 To use proxy, ensure Tor/SOCKS is running: sudo systemctl start tor")
+                self.proxy.enabled = False
+                self.proxy_auto_disabled = True
 
         # Initialize Notifier
         self.notifier = Notifier(notify_config) if notify_config else Notifier.from_env()
@@ -393,6 +398,7 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
         recent_commands = []       # Track recent commands to detect loops
         command_types = []         # Track 'script' or 'tool' pattern for alternation
         recent_outputs = []        # Track recent output hashes to detect stuck loops
+        proxy_fail_count = 0         # Track consecutive proxy failures for auto-disable
 
         def _is_script(cmd):
             """Detect if a command is a custom script vs basic tool command."""
@@ -539,6 +545,11 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                 # Use unique filename per iteration to avoid stale cache hits
                 if script_type == "python":
                     script_path = os.path.join(self.executor.working_dir, f"zenith_script_{self.iteration}.py")
+                    # Ensure zenith modules are importable from script
+                    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                    sys_path_inject = f"import sys; sys.path.insert(0, {repr(project_root)})\n"
+                    if "from zenith." in script_content or "import zenith" in script_content:
+                        script_content = sys_path_inject + script_content
                     run_cmd = f"python3 {script_path}"
                 else:
                     script_path = os.path.join(self.executor.working_dir, f"zenith_script_{self.iteration}.sh")
@@ -595,6 +606,28 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                 # Log to KB
                 self.kb.log_command(f"[SCRIPT:{script_type}] {run_cmd}", combined_output, result["success"])
                 
+                # === PROXY HEALTH CHECK ===
+                if self.proxy.enabled:
+                    combined_lower = combined_output.lower()
+                    if not result["success"] and ("connection refused" in combined_lower or "socks" in combined_lower or "proxy" in combined_lower):
+                        proxy_fail_count += 1
+                        if proxy_fail_count >= 3:
+                            Display.warning(f"🔌 Proxy failed {proxy_fail_count}x in a row! Auto-disabling proxy for DIRECT connections.")
+                            self.proxy.enabled = False
+                            self.proxy_auto_disabled = True
+                            proxy_fail_count = 0
+                            last_output = (f"⚠️ SYSTEM: Proxy/Tor was DOWN (Connection refused {proxy_fail_count}x). "
+                                          f"Proxy has been AUTO-DISABLED. All commands now run with DIRECT connections. "
+                                          f"Retry your approach - it should work now without proxy.")
+                            continue
+                    elif result["success"]:
+                        proxy_fail_count = max(0, proxy_fail_count - 1)
+                elif self.proxy_auto_disabled and not result["success"]:
+                    # Even without proxy, if connection still refused, it's the target
+                    combined_lower = combined_output.lower()
+                    if "connection refused" in combined_lower:
+                        pass  # Executor already adds TARGET IS BLOCKING message
+
                 # Track as 'script' type for alternation
                 command_types.append('script')
                 if len(command_types) > 10:
@@ -730,6 +763,23 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                 # Log to KB
                 self.kb.log_command(command, combined_output, result["success"])
                 
+                # === PROXY HEALTH CHECK ===
+                if self.proxy.enabled:
+                    combined_lower = combined_output.lower()
+                    if not result["success"] and ("connection refused" in combined_lower or "socks" in combined_lower or "proxy" in combined_lower):
+                        proxy_fail_count += 1
+                        if proxy_fail_count >= 3:
+                            Display.warning(f"🔌 Proxy failed {proxy_fail_count}x in a row! Auto-disabling proxy for DIRECT connections.")
+                            self.proxy.enabled = False
+                            self.proxy_auto_disabled = True
+                            proxy_fail_count = 0
+                            last_output = (f"⚠️ SYSTEM: Proxy/Tor was DOWN (Connection refused). "
+                                          f"Proxy has been AUTO-DISABLED. All commands now run with DIRECT connections. "
+                                          f"Retry your approach - it should work now without proxy.")
+                            continue
+                    elif result["success"]:
+                        proxy_fail_count = max(0, proxy_fail_count - 1)
+
                 # Track command type for alternation
                 command_types.append('script' if _is_script(command) else 'tool')
                 if len(command_types) > 10:

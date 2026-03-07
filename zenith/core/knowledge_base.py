@@ -266,6 +266,66 @@ class KnowledgeBase:
                         )
                         break
 
+        # ── Parse Zenith Advanced Module output ──
+        # IDOR/BOLA findings
+        idor_hits = re.findall(r'\[(?:CRITICAL|HIGH)\]\s*(?:Finding\s*#\d+:\s*)?(IDOR|BOLA|PATH_TRAVERSAL_IDOR).*?(?:Detail|URL):\s*(.+)', output)
+        for vuln_type, detail in idor_hits[:5]:
+            self.add_vulnerability(
+                title=f"IDOR: {detail.strip()[:100]}",
+                severity="HIGH",
+                description=f"Insecure Direct Object Reference - {vuln_type}",
+                evidence=detail.strip()[:300]
+            )
+
+        # SSRF findings
+        ssrf_hits = re.findall(r'\[(?:CRITICAL|HIGH)\]\s*(?:Finding\s*#\d+:\s*)?(SSRF|BLIND_SSRF|HEADER_SSRF).*?(?:Detail|Payload):\s*(.+)', output)
+        for vuln_type, detail in ssrf_hits[:5]:
+            self.add_vulnerability(
+                title=f"SSRF: {detail.strip()[:100]}",
+                severity="CRITICAL" if "metadata" in detail.lower() else "HIGH",
+                description=f"Server-Side Request Forgery - {vuln_type}",
+                evidence=detail.strip()[:300]
+            )
+
+        # JWT findings
+        jwt_hits = re.findall(r'\[(?:CRITICAL|HIGH)\]\s*(?:Finding\s*#\d+:\s*)?(JWT_\w+).*?(?:Detail|Secret):\s*(.+)', output)
+        for vuln_type, detail in jwt_hits[:5]:
+            sev = "CRITICAL" if any(w in vuln_type for w in ['NONE', 'WEAK_SECRET', 'FORGED', 'KID']) else "HIGH"
+            self.add_vulnerability(
+                title=f"JWT: {detail.strip()[:100]}",
+                severity=sev,
+                description=f"JWT Vulnerability - {vuln_type}",
+                evidence=detail.strip()[:300]
+            )
+
+        # SSTI findings
+        ssti_hits = re.findall(r'\[(?:CRITICAL|HIGH)\]\s*(?:Finding\s*#\d+:\s*)?(SSTI\w*).*?(?:Detail|Engine):\s*(.+)', output)
+        for vuln_type, detail in ssti_hits[:5]:
+            sev = "CRITICAL" if 'uid=' in output or 'RCE' in output.upper() else "HIGH"
+            self.add_vulnerability(
+                title=f"SSTI: {detail.strip()[:100]}",
+                severity=sev,
+                description=f"Server-Side Template Injection - {vuln_type}",
+                evidence=detail.strip()[:300]
+            )
+
+        # Race Condition findings
+        race_hits = re.findall(r'\[(?:CRITICAL|HIGH)\]\s*(?:Finding\s*#\d+:\s*)?(RACE_\w+|DOUBLE_ACTION|NO_RATE_LIMIT|RATE_LIMIT_BYPASS).*?(?:Detail|Endpoint):\s*(.+)', output)
+        for vuln_type, detail in race_hits[:5]:
+            sev = "CRITICAL" if 'FINANCIAL' in detail.upper() or vuln_type == 'DOUBLE_ACTION' else "HIGH"
+            self.add_vulnerability(
+                title=f"Race Condition: {detail.strip()[:100]}",
+                severity=sev,
+                description=f"Concurrency Vulnerability - {vuln_type}",
+                evidence=detail.strip()[:300]
+            )
+
+        # Generic module summary lines: ⚠ TOTAL IDOR FINDINGS: N
+        total_findings = re.findall(r'⚠\s*TOTAL\s+(\w+)\s+FINDINGS:\s*(\d+)', output)
+        for module_name, count in total_findings:
+            if int(count) > 0:
+                self.add_note(f"Module {module_name}: {count} findings detected")
+
     def add_note(self, note):
         """AI adds a note to itself."""
         self.data["notes"].append({

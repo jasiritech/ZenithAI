@@ -1,6 +1,6 @@
 """
 Zenith Scan Profiles - Pre-configured scan templates.
-Quick, Full, Stealth, Web-Only, Network-Only, and Custom profiles.
+Quick, Full, Stealth, Web-Only, Network-Only, Deep, and Custom profiles.
 """
 
 
@@ -33,6 +33,26 @@ PROFILES = {
         "phases": ["recon", "scan", "report"],
         "timeout_per_command": 120,
     },
+    "deep": {
+        "name": "🧠 Deep Scan",
+        "description": "Advanced vulnerability scan using built-in attack modules (IDOR, SSRF, JWT, SSTI, Race Conditions).",
+        "max_iterations": 120,
+        "goal_template": (
+            "Perform a DEEP ADVANCED security assessment on {target}. "
+            "Start with recon (ports, services, tech stack, endpoints), then use Zenith's "
+            "BUILT-IN ATTACK MODULES for thorough vulnerability testing:\n"
+            "1. Run IDOR Scanner: from zenith.modules.idor_scanner import IDORScanner\n"
+            "2. Run SSRF Scanner: from zenith.modules.ssrf_scanner import SSRFScanner\n"
+            "3. Run JWT Attacker: from zenith.modules.jwt_attacks import JWTAttacker\n"
+            "4. Run SSTI Scanner: from zenith.modules.ssti_scanner import SSTIScanner\n"
+            "5. Run Race Condition Tester: from zenith.modules.race_condition import RaceConditionTester\n"
+            "Each module: scanner = Module('{target}'); results = scanner.scan()\n"
+            "ALSO test for: SQLi, XSS, LFI, directory traversal, misconfigurations. "
+            "Be extremely thorough. Use ALL available modules and tools."
+        ),
+        "phases": ["recon", "scan", "exploit", "post_exploit", "report"],
+        "timeout_per_command": 600,
+    },
     "full": {
         "name": "🔥 Full Scan",
         "description": "Comprehensive scan. Thorough and deep - takes longer.",
@@ -43,6 +63,8 @@ PROFILES = {
             "technology fingerprinting. Then scan for all vulnerabilities: "
             "SQL injection, XSS, directory traversal, SSRF, misconfigurations, "
             "default credentials, exposed APIs, sensitive files. "
+            "Use the built-in advanced modules when appropriate: "
+            "IDORScanner, SSRFScanner, JWTAttacker, SSTIScanner, RaceConditionTester. "
             "Try to exploit any found vulnerabilities. Be extremely thorough."
         ),
         "phases": ["recon", "scan", "exploit", "post_exploit", "report"],

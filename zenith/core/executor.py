@@ -147,8 +147,14 @@ class TerminalExecutor:
         return self.default_timeout or 300  # Default 5 minutes - let commands finish
 
     def _is_cacheable_command(self, command):
-        """Cache only read-style commands to speed up repeated scan loops."""
+        """Cache only read-style commands to speed up repeated scan loops.
+        NEVER cache script file executions - the script content changes between runs
+        even though the command path stays the same."""
         cmd = command.strip().lower()
+        # CRITICAL: Never cache script file executions (content changes between runs)
+        script_indicators = ['zenith_script', '_script.py', '_script.sh', '/tmp/zenith_']
+        if any(ind in cmd for ind in script_indicators):
+            return False
         write_indicators = [" apt ", " install ", " rm ", " mv ", " cp ", " >", " >>", " tee ", " chmod ", " chown "]
         if any(x in f" {cmd} " for x in write_indicators):
             return False
@@ -180,6 +186,10 @@ class TerminalExecutor:
         if not self._is_cacheable_command(command):
             return
         self.command_cache[command] = {"ts": time.time(), "result": dict(result)}
+
+    def invalidate_cache(self):
+        """Clear the entire command cache (e.g., when starting a new scan phase)."""
+        self.command_cache.clear()
 
     def _wrap_sudo(self, command):
         """

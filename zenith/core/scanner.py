@@ -392,6 +392,7 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
         failed_tools = set()      # Track tools that are not installed
         recent_commands = []       # Track recent commands to detect loops
         command_types = []         # Track 'script' or 'tool' pattern for alternation
+        recent_outputs = []        # Track recent output hashes to detect stuck loops
 
         def _is_script(cmd):
             """Detect if a command is a custom script vs basic tool command."""
@@ -510,8 +511,10 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                 self.current_phase = new_phase
                 self.kb.update_phase(new_phase)
                 self.phase_iteration = 0
+                self.executor.invalidate_cache()  # Fresh results for new phase
+                recent_commands.clear()
                 Display.phase(new_phase)
-                last_output = f"Phase switched to {new_phase}"
+                last_output = f"Phase switched to {new_phase}. All caches cleared."
                 continue
 
             # --- EXECUTE SCRIPT (file-based) ---
@@ -533,11 +536,12 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                 script_content = script_content.replace("TARGET_HERE", self.target)
                 
                 # Determine script path and execution command
+                # Use unique filename per iteration to avoid stale cache hits
                 if script_type == "python":
-                    script_path = os.path.join(self.executor.working_dir, "zenith_script.py")
+                    script_path = os.path.join(self.executor.working_dir, f"zenith_script_{self.iteration}.py")
                     run_cmd = f"python3 {script_path}"
                 else:
-                    script_path = os.path.join(self.executor.working_dir, "zenith_script.sh")
+                    script_path = os.path.join(self.executor.working_dir, f"zenith_script_{self.iteration}.sh")
                     if not script_content.startswith("#!"):
                         script_content = "#!/bin/bash\n" + script_content
                     run_cmd = f"bash {script_path}"
@@ -614,6 +618,28 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                 # Update for next iteration
                 last_command = f"[{script_type} script] {decision.get('reasoning', '')[:80]}"
                 last_output = combined_output[:3000]
+                
+                # Stuck-loop detection: if the same output hash repeats 3+ times, force phase switch
+                import hashlib as _hl
+                out_hash = _hl.md5(combined_output[:500].encode()).hexdigest()[:8]
+                recent_outputs.append(out_hash)
+                if len(recent_outputs) > 10:
+                    recent_outputs = recent_outputs[-10:]
+                if recent_outputs.count(out_hash) >= 3:
+                    Display.warning("⚠ Stuck loop detected (same output 3x). Forcing phase switch...")
+                    self.executor.invalidate_cache()
+                    recent_commands.clear()
+                    recent_outputs.clear()
+                    if self.current_phase == "recon":
+                        self.current_phase = "scan"
+                    elif self.current_phase == "scan":
+                        self.current_phase = "exploit"
+                    else:
+                        self.current_phase = "report"
+                    self.kb.update_phase(self.current_phase)
+                    self.phase_iteration = 0
+                    Display.phase(self.current_phase)
+                    last_output = f"SYSTEM: Stuck loop detected. Auto-switched to phase '{self.current_phase}'. Use a COMPLETELY DIFFERENT approach."
 
             # --- EXECUTE COMMAND ---
             elif action == "COMMAND":

@@ -266,12 +266,13 @@ def interactive_setup():
   ███╔╝  ██╔══╝  ██║╚██╗██║██║   ██║   ██╔══██║    ██╔══██║██║
  ███████╗███████╗██║ ╚████║██║   ██║   ██║  ██║    ██║  ██║██║
  ╚══════╝╚══════╝╚═╝  ╚═══╝╚═╝   ╚═╝   ╚═╝  ╚═╝    ╚═╝  ╚═╝
-{Colors.RESET}
-{Colors.YELLOW}  ⚡ Autonomous AI-Powered Security Scanner v2.0{Colors.RESET}
-{Colors.DIM}  ─────────────────────────────────────────────────────{Colors.RESET}
-{Colors.CYAN}  AI: Gemini / Groq  │  Engine: Autonomous AI Agent{Colors.RESET}
-{Colors.DIM}  ─────────────────────────────────────────────────────{Colors.RESET}
-""")
+{Colors.RESET}""")
+
+    Display._box([
+        f"{Colors.NEON_GREEN}⚡{Colors.RESET} {Colors.BOLD}Autonomous AI-Powered Security Scanner{Colors.RESET}  {Colors.GRAY}v2.0{Colors.RESET}",
+        f"{Colors.TEAL}🤖{Colors.RESET} {Colors.DIM}AI: Gemini / Groq{Colors.RESET}  {Colors.DARK_GRAY}│{Colors.RESET}  {Colors.DIM}Engine: Autonomous AI Agent{Colors.RESET}",
+    ], color=Colors.CYAN, style="rounded")
+    print()
 
     # ═══════════════════════════════════════
     # CHECK FOR RESUMABLE SESSIONS
@@ -281,18 +282,17 @@ def interactive_setup():
     resume_session = None
 
     if resumable:
-        print(f"  {Colors.YELLOW}{'━' * 52}{Colors.RESET}")
-        print(f"  {Colors.YELLOW}{Colors.BOLD}  📂  RESUMABLE SESSIONS FOUND{Colors.RESET}")
-        print(f"  {Colors.YELLOW}{'━' * 52}{Colors.RESET}")
+        session_lines = [f"{Colors.BOLD}📂 RESUMABLE SESSIONS{Colors.RESET}", ""]
         for i, s in enumerate(resumable[:5], 1):
             target_disp = s.get("target", "?")[:30]
             phase = s.get("current_phase", "?")
             itr = s.get("current_iteration", 0)
-            print(f"  {Colors.GREEN}  [{i}]{Colors.RESET} {target_disp} {Colors.DIM}(phase: {phase}, iter: {itr}){Colors.RESET}")
-        print(f"  {Colors.DIM}  [0] Start a new scan{Colors.RESET}")
+            session_lines.append(f"  {Colors.GREEN}[{i}]{Colors.RESET} {target_disp} {Colors.DIM}(phase: {phase}, iter: {itr}){Colors.RESET}")
+        session_lines.append(f"  {Colors.DIM}[0] Start a new scan{Colors.RESET}")
+        Display._box(session_lines, color=Colors.YELLOW, style="rounded")
         print()
 
-        resume_choice = input(f"  {Colors.YELLOW}  Resume a session? [0]: {Colors.RESET}").strip()
+        resume_choice = input(f"  {Colors.YELLOW}  ▸ Resume a session? [0]: {Colors.RESET}").strip()
         if resume_choice and resume_choice != '0':
             try:
                 idx = int(resume_choice) - 1
@@ -308,15 +308,16 @@ def interactive_setup():
     # ═══════════════════════════════════════
     # STEP 1: CHOOSE AI PROVIDER
     # ═══════════════════════════════════════
-    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-    print(f"  {Colors.CYAN}{Colors.BOLD}  🤖  SELECT AI PROVIDER{Colors.RESET}")
-    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
     print()
-    print(f"  {Colors.YELLOW}  [1] Gemini (Google)  - 1,500 req/day free{Colors.RESET}")
-    print(f"  {Colors.GREEN}  [2] Groq (FAST!)     - 14,400 req/day FREE ⭐{Colors.RESET}")
+    Display._box([
+        f"{Colors.BOLD}🤖 SELECT AI PROVIDER{Colors.RESET}",
+        f"",
+        f"  {Colors.YELLOW}[1]{Colors.RESET} Gemini (Google)  {Colors.DIM}─ 1,500 req/day free{Colors.RESET}",
+        f"  {Colors.GREEN}[2]{Colors.RESET} Groq (FAST!)     {Colors.DIM}─ 14,400 req/day FREE ⭐{Colors.RESET}",
+    ], color=Colors.CYAN, style="rounded")
     print()
     
-    provider_choice = input(f"  {Colors.YELLOW}  Choose [1/2] (default: 2 for Groq): {Colors.RESET}").strip()
+    provider_choice = input(f"  {Colors.YELLOW}  ▸ Choose [1/2] (default: 2 for Groq): {Colors.RESET}").strip()
     
     if provider_choice == "1":
         provider = "gemini"
@@ -330,10 +331,12 @@ def interactive_setup():
         key_prefix = "gsk_"
     
     print()
-    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-    print(f"  {Colors.CYAN}{Colors.BOLD}  🔑  {provider.upper()} API KEY{Colors.RESET}")
-    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-    print(f"  {Colors.DIM}  Get yours free: {key_url}{Colors.RESET}")
+    print()
+    Display._box([
+        f"{Colors.BOLD}🔑 {provider.upper()} API KEY{Colors.RESET}",
+        f"",
+        f"  {Colors.DIM}Get yours free: {key_url}{Colors.RESET}",
+    ], color=Colors.CYAN, style="rounded")
     print()
 
     # Only check the env var for the SELECTED provider (don't mix keys!)
@@ -385,17 +388,19 @@ def interactive_setup():
     # ═══════════════════════════════════════
     # STEP 2: TARGET (with validation!)
     # ═══════════════════════════════════════
-    print(f"\n  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-    print(f"  {Colors.CYAN}{Colors.BOLD}  🎯  TARGET{Colors.RESET}")
-    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-    print(f"  {Colors.DIM}  URL:    https://example.com{Colors.RESET}")
-    print(f"  {Colors.DIM}  IP:     192.168.1.1{Colors.RESET}")
-    print(f"  {Colors.DIM}  Domain: example.com{Colors.RESET}")
-    print(f"  {Colors.DIM}  CIDR:   10.0.0.0/24{Colors.RESET}")
+    print()
+    Display._box([
+        f"{Colors.BOLD}🎯 TARGET{Colors.RESET}",
+        f"",
+        f"  {Colors.DIM}URL:    https://example.com{Colors.RESET}",
+        f"  {Colors.DIM}IP:     192.168.1.1{Colors.RESET}",
+        f"  {Colors.DIM}Domain: example.com{Colors.RESET}",
+        f"  {Colors.DIM}CIDR:   10.0.0.0/24{Colors.RESET}",
+    ], color=Colors.CYAN, style="rounded")
     print()
 
     while True:
-        target = input(f"  {Colors.YELLOW}  Enter target: {Colors.RESET}").strip()
+        target = input(f"  {Colors.YELLOW}  ▸ Enter target: {Colors.RESET}").strip()
 
         if not target:
             print(f"  {Colors.RED}  [✗] Target is required!{Colors.RESET}")
@@ -410,18 +415,18 @@ def interactive_setup():
     # ═══════════════════════════════════════
     # STEP 3: SCAN PROFILE
     # ═══════════════════════════════════════
-    print(f"\n  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-    print(f"  {Colors.CYAN}{Colors.BOLD}  📋  SCAN PROFILE{Colors.RESET}")
-    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
+    print()
 
     profile_list = list_profiles()
     profile_keys = [k for k, _, _ in profile_list]
+    profile_lines = [f"{Colors.BOLD}📋 SCAN PROFILE{Colors.RESET}", ""]
     for i, (key, name, desc) in enumerate(profile_list, 1):
-        print(f"  {Colors.GREEN}  [{i}]{Colors.RESET} {name} {Colors.DIM}- {desc}{Colors.RESET}")
-    print(f"  {Colors.DIM}  [0] Custom goal (type your own){Colors.RESET}")
+        profile_lines.append(f"  {Colors.GREEN}[{i}]{Colors.RESET} {name} {Colors.DIM}─ {desc}{Colors.RESET}")
+    profile_lines.append(f"  {Colors.DIM}[0] Custom goal (type your own){Colors.RESET}")
+    Display._box(profile_lines, color=Colors.CYAN, style="rounded")
     print()
 
-    profile_choice = input(f"  {Colors.YELLOW}  Choose profile [0]: {Colors.RESET}").strip()
+    profile_choice = input(f"  {Colors.YELLOW}  ▸ Choose profile [0]: {Colors.RESET}").strip()
     profile_name = None
     goal = None
     max_iterations = 100
@@ -443,13 +448,15 @@ def interactive_setup():
     # STEP 4: GOAL (if no profile selected)
     # ═══════════════════════════════════════
     if not goal:
-        print(f"\n  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-        print(f"  {Colors.CYAN}{Colors.BOLD}  🎯  GOAL {Colors.DIM}(press Enter for full scan){Colors.RESET}")
-        print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-        print(f"  {Colors.DIM}  Example: Find SQL injection, Check for XSS, etc.{Colors.RESET}")
+        print()
+        Display._box([
+            f"{Colors.BOLD}🎯 GOAL{Colors.RESET} {Colors.DIM}(press Enter for full scan){Colors.RESET}",
+            f"",
+            f"  {Colors.DIM}Example: Find SQL injection, Check for XSS, etc.{Colors.RESET}",
+        ], color=Colors.CYAN, style="rounded")
         print()
 
-        goal = input(f"  {Colors.YELLOW}  Goal [full scan]: {Colors.RESET}").strip()
+        goal = input(f"  {Colors.YELLOW}  ▸ Goal [full scan]: {Colors.RESET}").strip()
 
         if not goal:
             goal = (
@@ -465,30 +472,34 @@ def interactive_setup():
         model = "groq"
         print(f"\n  {Colors.GREEN}  [✓] Using Groq AI (llama-3.3-70b) - FAST!{Colors.RESET}")
     else:
-        print(f"\n  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-        print(f"  {Colors.CYAN}{Colors.BOLD}  🧠  AI MODEL{Colors.RESET}")
-        print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-        print(f"  {Colors.GREEN}  [1]{Colors.RESET} Gemini 2.5 Flash  {Colors.DIM}(fast, recommended){Colors.RESET}")
-        print(f"  {Colors.MAGENTA}  [2]{Colors.RESET} Gemini 2.5 Pro    {Colors.DIM}(deep thinking, slower){Colors.RESET}")
+        print()
+        Display._box([
+            f"{Colors.BOLD}🧠 AI MODEL{Colors.RESET}",
+            f"",
+            f"  {Colors.GREEN}[1]{Colors.RESET} Gemini 2.5 Flash  {Colors.DIM}(fast, recommended){Colors.RESET}",
+            f"  {Colors.MAGENTA}[2]{Colors.RESET} Gemini 2.5 Pro    {Colors.DIM}(deep thinking, slower){Colors.RESET}",
+        ], color=Colors.CYAN, style="rounded")
         print()
 
-        model_choice = input(f"  {Colors.YELLOW}  Choose [1]: {Colors.RESET}").strip()
+        model_choice = input(f"  {Colors.YELLOW}  ▸ Choose [1]: {Colors.RESET}").strip()
         model = "pro" if model_choice == "2" else "flash"
 
     # ═══════════════════════════════════════
     # STEP 6: PROXY / TOR (optional)
     # ═══════════════════════════════════════
     proxy_config = None
-    print(f"\n  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-    print(f"  {Colors.CYAN}{Colors.BOLD}  🔒  PROXY / TOR {Colors.DIM}(optional){Colors.RESET}")
-    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-    print(f"  {Colors.GREEN}  [0]{Colors.RESET} No proxy {Colors.DIM}(direct connection){Colors.RESET}")
-    print(f"  {Colors.GREEN}  [1]{Colors.RESET} Tor {Colors.DIM}(route through Tor network){Colors.RESET}")
-    print(f"  {Colors.GREEN}  [2]{Colors.RESET} Proxychains {Colors.DIM}(use proxychains config){Colors.RESET}")
-    print(f"  {Colors.GREEN}  [3]{Colors.RESET} Custom proxy {Colors.DIM}(HTTP/SOCKS5){Colors.RESET}")
+    print()
+    Display._box([
+        f"{Colors.BOLD}🔒 PROXY / TOR{Colors.RESET} {Colors.DIM}(optional){Colors.RESET}",
+        f"",
+        f"  {Colors.GREEN}[0]{Colors.RESET} No proxy {Colors.DIM}(direct connection){Colors.RESET}",
+        f"  {Colors.GREEN}[1]{Colors.RESET} Tor {Colors.DIM}(route through Tor network){Colors.RESET}",
+        f"  {Colors.GREEN}[2]{Colors.RESET} Proxychains {Colors.DIM}(use proxychains config){Colors.RESET}",
+        f"  {Colors.GREEN}[3]{Colors.RESET} Custom proxy {Colors.DIM}(HTTP/SOCKS5){Colors.RESET}",
+    ], color=Colors.CYAN, style="rounded")
     print()
 
-    proxy_choice = input(f"  {Colors.YELLOW}  Choose [0]: {Colors.RESET}").strip()
+    proxy_choice = input(f"  {Colors.YELLOW}  ▸ Choose [0]: {Colors.RESET}").strip()
 
     if proxy_choice == "1":
         proxy_config = {"type": "tor"}
@@ -497,7 +508,7 @@ def interactive_setup():
         proxy_config = {"type": "proxychains"}
         print(f"  {Colors.GREEN}  [✓] Proxychains enabled{Colors.RESET}")
     elif proxy_choice == "3":
-        proxy_url = input(f"  {Colors.YELLOW}  Proxy URL (e.g. socks5://127.0.0.1:1080): {Colors.RESET}").strip()
+        proxy_url = input(f"  {Colors.YELLOW}  ▸ Proxy URL (e.g. socks5://127.0.0.1:1080): {Colors.RESET}").strip()
         if proxy_url:
             if "socks5" in proxy_url:
                 proxy_config = {"type": "socks5", "host": proxy_url}
@@ -511,11 +522,13 @@ def interactive_setup():
     # STEP 7: SUDO PASSWORD (optional)
     # ═══════════════════════════════════════
     sudo_password = None
-    print(f"\n  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-    print(f"  {Colors.CYAN}{Colors.BOLD}  🔓  SUDO PASSWORD {Colors.DIM}(optional - press Enter to skip){Colors.RESET}")
-    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-    print(f"  {Colors.DIM}  Needed for: apt install, service restart, etc.{Colors.RESET}")
-    print(f"  {Colors.DIM}  Skip if your user has passwordless sudo.{Colors.RESET}")
+    print()
+    Display._box([
+        f"{Colors.BOLD}🔓 SUDO PASSWORD{Colors.RESET} {Colors.DIM}(optional ─ press Enter to skip){Colors.RESET}",
+        f"",
+        f"  {Colors.DIM}Needed for: apt install, service restart, etc.{Colors.RESET}",
+        f"  {Colors.DIM}Skip if your user has passwordless sudo.{Colors.RESET}",
+    ], color=Colors.CYAN, style="rounded")
     print()
 
     import getpass
@@ -551,18 +564,19 @@ def interactive_setup():
     profile_display = profile_name or "custom"
     proxy_display = proxy_config["type"] if proxy_config else "none"
 
-    print(f"\n  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-    print(f"  {Colors.CYAN}{Colors.BOLD}  🚀  READY TO LAUNCH{Colors.RESET}")
-    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
-    print(f"  {Colors.BOLD}    Target:{Colors.RESET}  {target}")
-    print(f"  {Colors.BOLD}    Model:{Colors.RESET}   {model_display}")
-    print(f"  {Colors.BOLD}    Profile:{Colors.RESET} {profile_display}")
-    print(f"  {Colors.BOLD}    Proxy:{Colors.RESET}   {proxy_display}")
-    print(f"  {Colors.BOLD}    Goal:{Colors.RESET}    {goal[:60]}...")
-    print(f"  {Colors.CYAN}{'━' * 52}{Colors.RESET}")
+    print()
+    Display._box([
+        f"{Colors.BOLD}🚀 READY TO LAUNCH{Colors.RESET}",
+        f"",
+        f"  Target   {Colors.BOLD}{target}{Colors.RESET}",
+        f"  Model    {model_display}",
+        f"  Profile  {Colors.BOLD}{profile_display}{Colors.RESET}",
+        f"  Proxy    {Colors.BOLD}{proxy_display}{Colors.RESET}",
+        f"  Goal     {Colors.DIM}{goal[:55]}...{Colors.RESET}",
+    ], color=Colors.NEON_GREEN, style="double")
     print()
 
-    confirm = input(f"  {Colors.YELLOW}{Colors.BOLD}    Launch scan? [Y/n]: {Colors.RESET}").strip().lower()
+    confirm = input(f"  {Colors.YELLOW}{Colors.BOLD}  ▸ Launch scan? [Y/n]: {Colors.RESET}").strip().lower()
 
     if confirm == 'n':
         print(f"\n  {Colors.RED}  Scan cancelled.{Colors.RESET}")

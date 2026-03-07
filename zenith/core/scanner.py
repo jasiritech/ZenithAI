@@ -209,88 +209,77 @@ class ZenithScanner:
         vulnerabilities = kb_data.get("vulnerabilities", [])
         open_ports = kb_data.get("open_ports", [])
         
-        print(f"\n  {Colors.CYAN}{'═' * 55}{Colors.RESET}")
-        print(f"  {Colors.BOLD}  📊 FINDINGS SUMMARY{Colors.RESET}")
-        print(f"  {Colors.CYAN}{'═' * 55}{Colors.RESET}")
-        print()
-        
-        # Vulnerability counts by severity
-        print(f"  {Colors.RED}  🔴 CRITICAL: {vuln_counts.get('CRITICAL', 0)}{Colors.RESET}")
-        print(f"  {Colors.YELLOW}  🟠 HIGH:     {vuln_counts.get('HIGH', 0)}{Colors.RESET}")
-        print(f"  {Colors.YELLOW}  🟡 MEDIUM:   {vuln_counts.get('MEDIUM', 0)}{Colors.RESET}")
-        print(f"  {Colors.GREEN}  🟢 LOW:      {vuln_counts.get('LOW', 0)}{Colors.RESET}")
-        print(f"  {Colors.DIM}  ⚪ INFO:     {vuln_counts.get('INFO', 0)}{Colors.RESET}")
-        print()
-        print(f"  {Colors.BOLD}  TOTAL: {total_vulns} vulnerabilities{Colors.RESET}")
+        # Modern findings summary card
+        summary_lines = [
+            f"{Colors.BOLD}📊 FINDINGS SUMMARY{Colors.RESET}",
+            f"",
+            f"  {Colors.NEON_RED}🔴{Colors.RESET} CRITICAL  {Colors.BOLD}{vuln_counts.get('CRITICAL', 0)}{Colors.RESET}",
+            f"  {Colors.RED}🟠{Colors.RESET} HIGH      {Colors.BOLD}{vuln_counts.get('HIGH', 0)}{Colors.RESET}",
+            f"  {Colors.YELLOW}🟡{Colors.RESET} MEDIUM    {Colors.BOLD}{vuln_counts.get('MEDIUM', 0)}{Colors.RESET}",
+            f"  {Colors.BLUE}🔵{Colors.RESET} LOW       {Colors.BOLD}{vuln_counts.get('LOW', 0)}{Colors.RESET}",
+            f"  {Colors.GRAY}⚪{Colors.RESET} INFO      {Colors.BOLD}{vuln_counts.get('INFO', 0)}{Colors.RESET}",
+            f"",
+            f"  {Colors.BOLD}TOTAL: {total_vulns} vulnerabilities{Colors.RESET}",
+        ]
+        Display._box(summary_lines, color=Colors.CYAN, style="rounded", title="─── FINDINGS ───")
         print()
         
         # Show actual findings
         if vulnerabilities:
-            print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
-            print(f"  {Colors.BOLD}  🔍 VULNERABILITY DETAILS:{Colors.RESET}")
-            print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
-            
-            for i, vuln in enumerate(vulnerabilities[:10], 1):  # Show max 10
+            vuln_lines = [f"{Colors.BOLD}🔍 VULNERABILITY DETAILS{Colors.RESET}", ""]
+            for i, vuln in enumerate(vulnerabilities[:10], 1):
                 severity = vuln.get("severity", "INFO").upper()
-                title = vuln.get("title", vuln.get("description", "Unknown"))[:60]
-                
-                # Color by severity
-                if severity == "CRITICAL":
-                    color = Colors.RED
-                elif severity == "HIGH":
-                    color = Colors.YELLOW
-                elif severity == "MEDIUM":
-                    color = Colors.YELLOW
-                else:
-                    color = Colors.DIM
-                
-                print(f"  {color}  [{i}] [{severity}] {title}{Colors.RESET}")
-            
+                title = vuln.get("title", vuln.get("description", "Unknown"))[:55]
+                sev_colors_map = {"CRITICAL": Colors.NEON_RED, "HIGH": Colors.RED, "MEDIUM": Colors.YELLOW, "LOW": Colors.BLUE}
+                sc = sev_colors_map.get(severity, Colors.DIM)
+                vuln_lines.append(f"  {sc}▪{Colors.RESET} {sc}[{severity}]{Colors.RESET} {title}")
             if len(vulnerabilities) > 10:
-                print(f"  {Colors.DIM}  ... and {len(vulnerabilities) - 10} more{Colors.RESET}")
+                vuln_lines.append(f"  {Colors.DIM}⋯ and {len(vulnerabilities) - 10} more{Colors.RESET}")
+            Display._box(vuln_lines, color=Colors.RED, style="rounded")
             print()
         
         # Show ports/services found
         if open_ports:
-            print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
-            print(f"  {Colors.BOLD}  🌐 OPEN PORTS/SERVICES:{Colors.RESET}")
-            print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
+            port_lines = [f"{Colors.BOLD}🌐 OPEN PORTS / SERVICES{Colors.RESET}", ""]
             for port_info in open_ports[:8]:
                 if isinstance(port_info, dict):
                     port = port_info.get("port", "?")
                     service = port_info.get("service", "unknown")
-                    print(f"  {Colors.GREEN}  • Port {port}: {service}{Colors.RESET}")
+                    port_lines.append(f"  {Colors.GREEN}●{Colors.RESET} Port {Colors.BOLD}{port}{Colors.RESET} → {service}")
                 else:
-                    print(f"  {Colors.GREEN}  • {port_info}{Colors.RESET}")
+                    port_lines.append(f"  {Colors.GREEN}●{Colors.RESET} {port_info}")
             if len(open_ports) > 8:
-                print(f"  {Colors.DIM}  ... and {len(open_ports) - 8} more{Colors.RESET}")
+                port_lines.append(f"  {Colors.DIM}⋯ and {len(open_ports) - 8} more{Colors.RESET}")
+            Display._box(port_lines, color=Colors.GREEN, style="rounded")
             print()
         
         # Show commands executed
         stats = self.executor.get_stats()
-        print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
-        print(f"  {Colors.BOLD}  📈 SCAN STATS:{Colors.RESET}")
-        print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
-        print(f"  {Colors.DIM}  • Commands executed: {stats['total_commands']}{Colors.RESET}")
-        print(f"  {Colors.DIM}  • Commands failed: {stats['failed_commands']}{Colors.RESET}")
-        print(f"  {Colors.DIM}  • AI iterations: {self.iteration}{Colors.RESET}")
         elapsed = str(datetime.now() - self.start_time).split('.')[0]
-        print(f"  {Colors.DIM}  • Time elapsed: {elapsed}{Colors.RESET}")
+        stat_lines = [
+            f"{Colors.BOLD}📈 SCAN STATS{Colors.RESET}",
+            f"",
+            f"  💻 Commands executed  {Colors.BOLD}{stats['total_commands']}{Colors.RESET}",
+            f"  ❌ Commands failed    {Colors.BOLD}{stats['failed_commands']}{Colors.RESET}",
+            f"  🧠 AI iterations     {Colors.BOLD}{self.iteration}{Colors.RESET}",
+            f"  ⏱  Time elapsed      {Colors.BOLD}{elapsed}{Colors.RESET}",
+        ]
+        Display._box(stat_lines, color=Colors.STEEL_BLUE, style="rounded")
         print()
         
         # Interactive loop - keep asking until user wants to exit or continue
         while True:
-            print(f"  {Colors.CYAN}{'═' * 55}{Colors.RESET}")
-            print(f"  {Colors.BOLD}  🤔 WHAT WOULD YOU LIKE TO DO?{Colors.RESET}")
-            print(f"  {Colors.CYAN}{'═' * 55}{Colors.RESET}")
-            print()
-            print(f"  {Colors.YELLOW}  [1] ✅ Generate final report & exit{Colors.RESET}")
-            print(f"  {Colors.GREEN}  [2] 🔄 Continue scanning (give AI new instructions){Colors.RESET}")
-            print(f"  {Colors.CYAN}  [3] ❓ Ask AI a question about findings{Colors.RESET}")
+            Display._box([
+                f"{Colors.BOLD}🤔 WHAT WOULD YOU LIKE TO DO?{Colors.RESET}",
+                f"",
+                f"  {Colors.YELLOW}[1]{Colors.RESET} ✅ Generate final report & exit",
+                f"  {Colors.GREEN}[2]{Colors.RESET} 🔄 Continue scanning (new instructions)",
+                f"  {Colors.CYAN}[3]{Colors.RESET} ❓ Ask AI a question about findings",
+            ], color=Colors.YELLOW, style="rounded")
             print()
             
             try:
-                choice = input(f"  {Colors.YELLOW}  Your choice [1/2/3]: {Colors.RESET}").strip()
+                choice = input(f"  {Colors.YELLOW}  ▸ Your choice [1/2/3]: {Colors.RESET}").strip()
                 
                 if choice == "2":
                     # Continue with new instructions
@@ -334,29 +323,27 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                                 answer = self.ai._call_gemini(answer_prompt)
                             
                             print()
-                            print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
-                            print(f"  {Colors.BOLD}  🤖 AI ANSWER:{Colors.RESET}")
-                            print(f"  {Colors.CYAN}{'─' * 55}{Colors.RESET}")
-                            
-                            # Word wrap the answer
+                            # Word wrap the answer into box lines
+                            answer_lines = [f"{Colors.BOLD}🤖 AI ANSWER{Colors.RESET}", ""]
                             for line in answer.split('\n'):
-                                if len(line) > 70:
+                                if len(line) > 62:
                                     words = line.split()
-                                    current_line = "  "
+                                    buf = ""
                                     for word in words:
-                                        if len(current_line) + len(word) + 1 > 70:
-                                            print(current_line)
-                                            current_line = "  " + word
+                                        if len(buf) + len(word) + 1 > 62:
+                                            answer_lines.append(f"{Colors.DIM}{buf}{Colors.RESET}")
+                                            buf = word
                                         else:
-                                            current_line += " " + word if current_line.strip() else "  " + word
-                                    if current_line.strip():
-                                        print(current_line)
+                                            buf += " " + word if buf else word
+                                    if buf:
+                                        answer_lines.append(f"{Colors.DIM}{buf}{Colors.RESET}")
                                 else:
-                                    print(f"  {line}")
+                                    answer_lines.append(f"{Colors.DIM}{line}{Colors.RESET}")
+                            Display._box(answer_lines, color=Colors.CYAN, style="rounded", title="─── AI ───")
                             print()
                             
                             # Wait for user to read
-                            input(f"  {Colors.DIM}Press Enter to continue...{Colors.RESET}")
+                            input(f"  {Colors.GRAY}  ▸ Press Enter to continue...{Colors.RESET}")
                             print()
                             
                         except Exception as e:
@@ -459,9 +446,15 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
 
             consecutive_errors = 0  # Reset on success
 
-            # Show AI's reasoning
+            # Show AI's reasoning with modern card
             reasoning = decision.get("reasoning", "No reasoning provided")
-            Display.info(f"AI Reasoning: {Colors.DIM}{reasoning[:150]}{Colors.RESET}")
+            expected_out = decision.get("expected_outcome", "")
+            script_info_preview = ""
+            if decision.get("script"):
+                stype = decision.get("script_type", "python")
+                slines = decision["script"].count('\n') + 1
+                script_info_preview = f"{stype} script, ~{slines} lines"
+            Display.iteration_card(self.iteration, self.max_iterations, reasoning, expected_out, script_info_preview)
 
             action = decision.get("action", "COMMAND")
 
@@ -532,10 +525,6 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                     Display.warning("AI returned empty script, asking to rethink...")
                     last_output = "ERROR: Empty script. Use action SCRIPT with 'script' field containing the code and 'script_type' as 'bash' or 'python'."
                     continue
-                
-                expected = decision.get("expected_outcome", "")
-                if expected:
-                    Display.info(f"Expected: {Colors.DIM}{expected[:100]}{Colors.RESET}")
                 
                 # Replace target placeholder
                 script_content = script_content.replace("TARGET_DOMAIN", self.target)
@@ -684,10 +673,6 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                     Display.warning("AI returned empty command, asking to rethink...")
                     last_output = "ERROR: Empty command received. Please provide a valid command."
                     continue
-
-                expected = decision.get("expected_outcome", "")
-                if expected:
-                    Display.info(f"Expected: {Colors.DIM}{expected[:100]}{Colors.RESET}")
 
                 # Validate command
                 is_valid, cleaned_cmd, warnings = self.validator.validate(command)

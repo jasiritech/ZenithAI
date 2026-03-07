@@ -166,9 +166,11 @@ class KnowledgeBase:
         """Automatically parse common tool outputs to extract data."""
         if not output:
             return
+        
+        output_lower = output.lower()
 
-        # Parse nmap output
-        if "nmap" in command.lower():
+        # ── Parse nmap output ──
+        if "nmap" in command.lower() or "nmap" in output_lower:
             # Extract ports
             port_pattern = re.findall(r'(\d+)/(tcp|udp)\s+open\s+(\S+)(?:\s+(.*))?', output)
             for port, proto, service, version in port_pattern:
@@ -186,22 +188,22 @@ class KnowledgeBase:
                 if ip not in self.data["target_info"]["ip_addresses"]:
                     self.data["target_info"]["ip_addresses"].append(ip)
 
-        # Parse whatweb output
+        # ── Parse whatweb output ──
         if "whatweb" in command.lower():
             tech_patterns = re.findall(r'\[(\S+)\]', output)
             for tech in tech_patterns:
                 if tech not in ['200', '301', '302', '403', '404', '500']:
                     self.add_technology(tech)
 
-        # Parse gobuster/dirb/dirsearch output
+        # ── Parse gobuster/dirb/dirsearch/ffuf output ──
         if any(tool in command.lower() for tool in ["gobuster", "dirb", "dirsearch", "ffuf"]):
             dir_patterns = re.findall(r'(/\S+)\s+.*?(?:Status|Code):\s*(\d+)', output)
             for directory, status in dir_patterns:
                 if status in ['200', '301', '302', '403']:
                     self.add_directory(f"{directory} [{status}]")
 
-        # Parse nuclei output
-        if "nuclei" in command.lower():
+        # ── Parse nuclei output ──
+        if "nuclei" in command.lower() or "[nuclei" in output_lower:
             vuln_patterns = re.findall(r'\[(\w+)\]\s+\[([^\]]+)\]\s+(.+)', output)
             for severity, template, detail in vuln_patterns:
                 self.add_vulnerability(
@@ -210,6 +212,59 @@ class KnowledgeBase:
                     description=detail.strip(),
                     evidence=f"Nuclei template: {template}"
                 )
+
+        # ── Universal: Parse Python script output for open ports ──
+        # Catches: [OPEN] Port 80, Port 443: OPEN, [+] Port 22 is OPEN
+        port_hits = re.findall(r'(?:\[(?:OPEN|\+)\]\s*)?[Pp]ort\s+(\d+)(?:\s*(?:is\s+)?(?:OPEN|open)|\s*:\s*OPEN)', output)
+        for port_str in port_hits:
+            port_num = int(port_str)
+            if 1 <= port_num <= 65535:
+                self.add_port(port_num, "unknown", "", "tcp")
+
+        # ── Universal: Detect IP addresses ──
+        ip_hits = re.findall(r'(?:IP(?:\s+Address)?|Resolved?)\s*:\s*(\d+\.\d+\.\d+\.\d+)', output)
+        for ip in ip_hits:
+            if ip not in self.data["target_info"]["ip_addresses"]:
+                self.data["target_info"]["ip_addresses"].append(ip)
+
+        # ── Universal: Detect technologies from script output ──
+        tech_keywords = {
+            'Server': r'[Ss]erver:\s*(\S+(?:/[\d.]+)?)',
+            'X-Powered-By': r'X-Powered-By:\s*(\S+(?:/[\d.]+)?)',
+            'Framework': r'(?:Framework|Generator):\s*(\S+)',
+        }
+        for label, pattern in tech_keywords.items():
+            for match in re.findall(pattern, output):
+                self.add_technology(f"{label}: {match}")
+
+        # ── Universal: Auto-detect critical/high severity findings from output ──
+        # Catches patterns like: ⚠ VULNERABLE, POTENTIAL SQLi, XSS REFLECTED, CERT VERIFICATION FAILED
+        vuln_signatures = [
+            (r'⚠\s*(?:VULNERABLE|POTENTIAL\s+SQLi|CERT(?:IFICATE)?\s+(?:EXPIR|VERIF))', 'HIGH'),
+            (r'(?:POTENTIAL|POSSIBLE)\s+SQL\s*[Ii]njection', 'HIGH'),
+            (r'(?:REFLECTED|XSS)\s*.*?(?:\?|param)', 'HIGH'),
+            (r'CORS\s+.*?(?:VULNERABLE|\*)', 'MEDIUM'),
+            (r'TRACE\s+enabled', 'MEDIUM'),
+            (r'(?:MISSING|✗)\s+(?:Strict-Transport|Content-Security-Policy|X-Frame-Options)', 'LOW'),
+            (r'\[200\]\s+/(?:\.env|\.git/config|\.git/HEAD|wp-config\.php|phpinfo\.php|server-(?:status|info)|actuator/env|swagger\.json|openapi\.json)', 'HIGH'),
+            (r'\[200\]\s+/(?:\.DS_Store|backup|\.htaccess|web\.config|config\.json|config\.ya?ml)', 'MEDIUM'),
+            (r'\[500\]\s+.*(?:sql|inject|error|syntax)', 'HIGH'),
+        ]
+        for pattern, severity in vuln_signatures:
+            matches = re.findall(pattern, output, re.IGNORECASE)
+            for match_text in matches[:3]:  # Max 3 per pattern to avoid spam
+                # Build a title from the match context
+                # Find the line containing the match for context
+                for line in output.split('\n'):
+                    if re.search(pattern, line, re.IGNORECASE):
+                        title = line.strip()[:120]
+                        self.add_vulnerability(
+                            title=title,
+                            severity=severity,
+                            description=f"Auto-detected from script output",
+                            evidence=line.strip()[:300]
+                        )
+                        break
 
     def add_note(self, note):
         """AI adds a note to itself."""

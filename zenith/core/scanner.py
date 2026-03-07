@@ -573,6 +573,9 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                 if self.proxy.enabled:
                     run_cmd = self.proxy.wrap_command(run_cmd)
                 
+                # Snapshot vuln count BEFORE execution (to detect new findings)
+                old_vuln_count = sum(self.kb.get_vulnerability_count().values())
+                
                 # Execute the script
                 Display.command(f"{run_cmd} [\U0001f4c4 {script_type} script, {line_count} lines]")
                 result = self.executor.execute(run_cmd)
@@ -597,8 +600,7 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                 if len(command_types) > 10:
                     command_types = command_types[-10:]
                 
-                # Check for new vulnerabilities
-                old_vuln_count = sum(self.kb.get_vulnerability_count().values())
+                # Check for new vulnerabilities (old_vuln_count captured before execution above)
                 new_vuln_count = sum(self.kb.get_vulnerability_count().values())
                 if new_vuln_count > old_vuln_count:
                     diff = new_vuln_count - old_vuln_count
@@ -705,6 +707,9 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                 if self.proxy.enabled:
                     command = self.proxy.wrap_command(command)
 
+                # Snapshot vuln count BEFORE execution (to detect new findings)
+                old_vuln_count = sum(self.kb.get_vulnerability_count().values())
+
                 # Execute the command
                 Display.command(command)
                 result = self.executor.execute(command)
@@ -730,9 +735,7 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                 if len(command_types) > 10:
                     command_types = command_types[-10:]
 
-                # Check for new vulnerabilities
-                old_vuln_count = sum(self.kb.get_vulnerability_count().values())
-                # KB auto-parsing happens in log_command
+                # Check for new vulnerabilities (old_vuln_count captured before execution above)
                 new_vuln_count = sum(self.kb.get_vulnerability_count().values())
                 
                 if new_vuln_count > old_vuln_count:

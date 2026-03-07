@@ -150,6 +150,59 @@ class Notifier:
         )
         self._send_all(message)
 
+    def notify_report(self, target, report_files, duration="", vuln_counts=None, risk_rating="UNKNOWN"):
+        """
+        Send the actual report files to Telegram (and text summary to other channels).
+        
+        Args:
+            target: Scan target
+            report_files: Dict of {"html": path, "json": path, "ai": path}
+            duration: Scan duration string
+            vuln_counts: Dict of severity counts
+            risk_rating: Overall risk rating
+        """
+        if not self.enabled or not HAS_REQUESTS:
+            return
+
+        vuln_counts = vuln_counts or {}
+        total = sum(vuln_counts.values())
+        risk_emoji = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🔵"}.get(risk_rating, "⚪")
+        
+        caption = (
+            f"📋 ZenithAI Scan Report\n"
+            f"🎯 Target: {target}\n"
+            f"⏱️ Duration: {duration}\n"
+            f"{risk_emoji} Risk: {risk_rating}\n"
+            f"🔓 Vulnerabilities: {total}"
+        )
+
+        # Send report files to Telegram
+        if "telegram" in self.config:
+            cfg = self.config["telegram"]
+            token = cfg["bot_token"]
+            chat_id = cfg["chat_id"]
+            
+            files_sent = 0
+            for label, filepath in report_files.items():
+                if filepath and os.path.exists(filepath):
+                    try:
+                        self._send_telegram_document(token, chat_id, filepath, caption if files_sent == 0 else f"📎 {label} report")
+                        files_sent += 1
+                    except Exception as e:
+                        print(f"    [!] Telegram file send failed ({label}): {e}")
+            
+            if files_sent == 0:
+                # If no files could be sent, at least send the text summary
+                self._send_telegram(caption)
+            else:
+                print(f"    [✓] {files_sent} report file(s) sent to Telegram!")
+
+        # Send text summary to Discord/Slack
+        if "discord" in self.config:
+            self._send_discord(caption)
+        if "slack" in self.config:
+            self._send_slack(caption)
+
     def _should_notify(self, event_type):
         """Check if we should send this notification type."""
         if not self.enabled or not HAS_REQUESTS:
@@ -188,9 +241,28 @@ class Notifier:
                 "disable_web_page_preview": True,
             }
             
-            requests.post(url, json=payload, timeout=10)
+            resp = requests.post(url, json=payload, timeout=10)
+            if not resp.ok:
+                err_data = resp.json() if resp.headers.get('content-type','').startswith('application/json') else resp.text
+                print(f"    [!] Telegram sendMessage failed: {resp.status_code} - {str(err_data)[:150]}")
         except Exception as e:
-            pass  # Silent fail - don't break scanning
+            print(f"    [!] Telegram error: {e}")
+
+    def _send_telegram_document(self, token, chat_id, filepath, caption=""):
+        """Send a file/document via Telegram Bot API."""
+        url = f"https://api.telegram.org/bot{token}/sendDocument"
+        
+        with open(filepath, 'rb') as f:
+            files = {'document': (os.path.basename(filepath), f)}
+            data = {
+                'chat_id': chat_id,
+                'caption': caption[:1024],  # Telegram caption limit
+            }
+            resp = requests.post(url, data=data, files=files, timeout=30)
+        
+        if not resp.ok:
+            err_data = resp.json() if resp.headers.get('content-type','').startswith('application/json') else resp.text
+            raise Exception(f"{resp.status_code} - {str(err_data)[:200]}")
 
     def _send_discord(self, message):
         """Send message via Discord webhook."""

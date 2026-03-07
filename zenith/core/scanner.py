@@ -933,10 +933,29 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
         )
 
         # Send completion notification
+        risk = ai_report.get("risk_rating", "UNKNOWN") if isinstance(ai_report, dict) else "UNKNOWN"
         self.notifier.notify_scan_end(
             self.target, elapsed, vuln_counts,
-            risk_rating=ai_report.get("risk_rating", "UNKNOWN") if isinstance(ai_report, dict) else "UNKNOWN"
+            risk_rating=risk
         )
+
+        # Send report FILES to Telegram (the actual documents!)
+        report_files = {}
+        if 'html_file' in locals() and html_file:
+            report_files["html"] = html_file
+        if kb_report_file:
+            report_files["json"] = kb_report_file
+        if ai_report_file and os.path.exists(ai_report_file):
+            report_files["ai_analysis"] = ai_report_file
+        
+        if report_files:
+            self.notifier.notify_report(
+                target=self.target,
+                report_files=report_files,
+                duration=elapsed,
+                vuln_counts=vuln_counts,
+                risk_rating=risk
+            )
 
     def stop(self):
         """Stop the scanner."""

@@ -80,7 +80,8 @@ class BotIntegratedScanner:
             log_callback: Function to call with log messages
             progress_callback: Function to call with (phase, progress)
         """
-        from zenith.core.scanner import ZenithScanner
+        import subprocess
+        import tempfile
         
         # Get API key from environment or config
         api_key = self._get_api_key()
@@ -92,37 +93,74 @@ class BotIntegratedScanner:
         self._stop_flag = False
 
         try:
-            # Create scanner with bot callbacks
-            scanner = ZenithScanner(
-                api_key=api_key,
-                target=target,
-                profile=profile
-            )
-
-            # Hook into scanner for progress updates
-            original_run = scanner.run
-            
-            # Simplified run - just execute the scan
             # Initial callback
             if progress_callback:
                 progress_callback("🔍 Starting scan...", 0)
             if log_callback:
                 log_callback(f"Starting {profile} scan on {target}")
 
-            # Run the scanner
+            # Create temp config file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                config = {
+                    "gemini_api_key": api_key,
+                    "target": target,
+                    "profile": profile
+                }
+                json.dump(config, f)
+                config_file = f.name
+
             try:
-                scanner.run()
+                # Run zenith.py as subprocess to avoid event loop issues
+                cmd = [
+                    sys.executable,
+                    "-m", "zenith",
+                    "--target", target,
+                    "--profile", profile,
+                    "--config", config_file
+                ]
+                
+                if log_callback:
+                    log_callback(f"Running command: {' '.join(cmd)}")
+                
+                # Run and stream output
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1
+                )
+                
+                # Stream output line by line
+                for line in process.stdout:
+                    line = line.strip()
+                    if line and log_callback:
+                        log_callback(line)
+                    
+                    # Update progress based on output
+                    if "Starting reconnaissance" in line and progress_callback:
+                        progress_callback("🔍 Reconnaissance", 20)
+                    elif "Port scanning" in line and progress_callback:
+                        progress_callback("🌐 Port Scanning", 40)
+                    elif "Running nuclei" in line and progress_callback:
+                        progress_callback("🔬 Vulnerability Scan", 60)
+                    elif "exploit" in line.lower() and progress_callback:
+                        progress_callback("💥 Exploitation", 80)
+                
+                process.wait()
                 
                 # Completion
                 if progress_callback:
                     progress_callback("✅ Complete", 100)
                 if log_callback:
-                    vuln_count = sum(scanner.kb.get_vulnerability_count().values())
-                    log_callback(f"Scan complete! Found {vuln_count} vulnerabilities")
-            except Exception as e:
-                if log_callback:
-                    log_callback(f"Scan error: {str(e)}", "error")
-                raise
+                    log_callback(f"Scan complete!")
+                
+            finally:
+                # Cleanup temp config
+                try:
+                    os.unlink(config_file)
+                except:
+                    pass
 
         except Exception as e:
             if log_callback:

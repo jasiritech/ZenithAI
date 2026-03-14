@@ -508,19 +508,34 @@ _Let's hunt some bugs!_ 🎯
     async def _run_real_scan(self, session: ScanSession):
         """Run actual scan with scanner."""
         # This connects to the ZenithScanner
-        # The scanner should call self.log() which we hook into
+        # The scanner runs in executor (separate thread), so callbacks
+        # need to be thread-safe
+        
+        loop = asyncio.get_event_loop()
         
         def log_callback(msg: str, level: str = "info"):
             session.logs.append(f"[{level.upper()}] {msg}")
-            asyncio.create_task(self._update_live_message(session))
+            # Schedule update from main thread
+            try:
+                loop.call_soon_threadsafe(
+                    lambda: asyncio.create_task(self._update_live_message(session))
+                )
+            except RuntimeError:
+                pass  # Loop might be closed
 
         def progress_callback(phase: str, progress: int):
             session.phase = phase
             session.progress = progress
-            asyncio.create_task(self._update_live_message(session))
+            # Schedule update from main thread
+            try:
+                loop.call_soon_threadsafe(
+                    lambda: asyncio.create_task(self._update_live_message(session))
+                )
+            except RuntimeError:
+                pass  # Loop might be closed
 
         # Run scanner with callbacks
-        await asyncio.get_event_loop().run_in_executor(
+        await loop.run_in_executor(
             None,
             lambda: self.scanner.scan(
                 target=session.target,

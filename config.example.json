@@ -1,11 +1,53 @@
 {
     "_comment": "Zenith AI Scanner - Configuration File",
-    "_instructions": "Copy this file to scan_config.json and fill in your values",
+    "_instructions": "Copy this file to config.json and fill in your values",
     
     "api_key": "YOUR_GEMINI_API_KEY_HERE",
+    "groq_api_key": "YOUR_GROQ_API_KEY_HERE",
     "target": "https://example.com",
     "goal": "Find all security vulnerabilities including web vulnerabilities, misconfigurations, and exposed data",
     "model": "flash",
     "max_iterations": 100,
-    "output_dir": "/tmp/zenith_results"
+    "output_dir": "/tmp/zenith_results",
+    
+    "_bot_comment": "=== BOT REMOTE CONTROL ===",
+    
+    "telegram_token": "YOUR_TELEGRAM_BOT_TOKEN",
+    "telegram_allowed_users": [],
+    "telegram_admin_users": [],
+    
+    "_telegram_instructions": [
+        "1. Message @BotFather on Telegram",
+        "2. Send /newbot and follow instructions",
+        "3. Copy the token here",
+        "4. Add your Telegram user ID to allowed_users",
+        "5. Get your ID from @userinfobot"
+    ],
+    
+    "whatsapp_allowed_numbers": [],
+    "whatsapp_admin_numbers": [],
+    
+    "_whatsapp_instructions": [
+        "1. Run: python -m zenith.bot.runner --whatsapp",
+        "2. Scan QR code with WhatsApp",
+        "3. Send commands via WhatsApp!"
+    ],
+    
+    "_notification_comment": "=== NOTIFICATIONS ===",
+    
+    "notify": {
+        "telegram_chat_id": "YOUR_CHAT_ID",
+        "telegram_token": "YOUR_BOT_TOKEN",
+        "instant_alerts": true,
+        "min_severity": "HIGH"
+    },
+    
+    "_proxy_comment": "=== PROXY/TOR ===",
+    
+    "proxy": {
+        "enabled": false,
+        "type": "socks5",
+        "host": "127.0.0.1",
+        "port": 9050
+    }
 }

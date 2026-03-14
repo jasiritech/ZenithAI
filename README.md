@@ -249,6 +249,40 @@ ZenithAI/
     │   ├── ssti_scanner.py  # 🔴 SSTI → RCE (Jinja2, Twig, ERB, etc.)
     │   └── race_condition.py # 🔴 Race conditions, double-spend, rate limits
     │
+    ├── agents/              # 🤖 Multi-Agent Architecture
+    │   ├── __init__.py
+    │   ├── base_agent.py    # 🔧 Abstract base agent class
+    │   ├── planner.py       # 🧠 Attack planning & orchestration
+    │   ├── recon.py         # 🔍 Reconnaissance pipeline
+    │   ├── web.py           # 🌐 Web security testing (Playwright)
+    │   ├── exploit.py       # 💥 Exploitation agent
+    │   ├── intelligence.py  # 📚 CVE/NVD lookup & research
+    │   └── reporter.py      # 📊 Report generation agent
+    │
+    ├── memory/              # 💾 Shared Memory & Attack Graph
+    │   ├── __init__.py
+    │   ├── shared_memory.py # 🔗 Thread-safe agent communication
+    │   └── attack_graph.py  # 🕸️ Target relationship graph
+    │
+    ├── parsers/             # 📝 Smart Output Parsers
+    │   ├── __init__.py
+    │   ├── nmap_parser.py   # 🔌 Nmap XML/grepable output
+    │   ├── nuclei_parser.py # 🔬 Nuclei JSONL/text output
+    │   └── generic_parser.py # 🤖 AI-powered generic parsing
+    │
+    ├── plugins/             # 🔌 Modular Plugin System
+    │   ├── __init__.py
+    │   ├── base_plugin.py   # 🔧 Plugin base class
+    │   ├── loader.py        # 📦 Auto-discovery loader
+    │   └── custom/          # 📁 User custom plugins
+    │
+    ├── bot/                 # 📱 Remote Control Bots
+    │   ├── __init__.py
+    │   ├── telegram_bot.py  # 🤖 Telegram with live logs
+    │   ├── whatsapp_bot.py  # 📲 WhatsApp MD integration
+    │   ├── command_parser.py # 🧠 Natural language parsing
+    │   └── runner.py        # ▶️ Bot startup script
+    │
     └── utils/
         ├── __init__.py
         ├── display.py       # 🎨 Terminal UI & colors
@@ -313,6 +347,84 @@ export ZENITH_DISCORD_WEBHOOK="https://discord.com/api/webhooks/..."
 
 # Slack
 export ZENITH_SLACK_WEBHOOK="https://hooks.slack.com/services/..."
+```
+
+---
+
+## 📱 Remote Control via Telegram/WhatsApp
+
+Control ZenithAI from anywhere using Telegram or WhatsApp! Send commands in natural language and receive **live scan updates** in real-time.
+
+### 🤖 Telegram Bot Setup
+
+1. **Create a Bot:**
+   - Open Telegram and message **@BotFather**
+   - Send `/newbot` and follow instructions
+   - Copy the bot token
+
+2. **Get Your User ID:**
+   - Message **@userinfobot** on Telegram
+   - Copy your user ID
+
+3. **Configure:**
+   ```bash
+   export TELEGRAM_BOT_TOKEN="your-bot-token"
+   export GEMINI_API_KEY="your-gemini-key"
+   ```
+
+4. **Start Bot:**
+   ```bash
+   python -m zenith.bot.runner --telegram
+   ```
+
+5. **Send Commands:**
+   - `/scan https://target.com` - Start quick scan
+   - `deep scan example.com` - Deep comprehensive scan
+   - `/status` - Check progress
+   - `/stop` - Stop current scan
+   - `/report` - Get results
+   - Or just send any URL!
+
+### 📲 WhatsApp Bot Setup
+
+1. **Install Node.js:** https://nodejs.org/
+
+2. **Start Bot:**
+   ```bash
+   python -m zenith.bot.runner --whatsapp
+   ```
+
+3. **Scan QR Code:** Open WhatsApp → Settings → Linked Devices → Link a Device
+
+4. **Send Commands:** Same as Telegram!
+
+### 🔴 Live Streaming
+
+Both bots show **real-time progress** with:
+- 📊 Progress bars updating live
+- 📝 Log messages streaming in real-time
+- 🚨 Instant vulnerability alerts
+- 📋 Final report delivery
+
+### Example Telegram Session:
+
+```
+You: scan https://example.com
+
+🟢 Scanning: example.com
+Profile: QUICK
+Phase: 🔍 Reconnaissance
+
+[████████████░░░░░░░░] 60%
+
+Live Logs:
+• Starting reconnaissance...
+• Found 3 subdomains
+• Port 80/tcp open - HTTP
+• Port 443/tcp open - HTTPS
+• [HIGH] SQL Injection found
+
+Updated: 14:32:45
 ```
 
 ---

@@ -97,10 +97,14 @@ class BotIntegratedScanner:
             if progress_callback:
                 progress_callback("🔍 Starting scan...", 0)
             if log_callback:
-                log_callback(f"Starting {profile} scan on {target}")
+                log_callback(f"[DEBUG] Starting {profile} scan on {target}")
 
             # Get path to zenith.py
             zenith_script = Path(__file__).parent.parent.parent / "zenith.py"
+            
+            if log_callback:
+                log_callback(f"[DEBUG] Zenith script path: {zenith_script}")
+                log_callback(f"[DEBUG] Script exists: {zenith_script.exists()}")
             
             # Run zenith.py as subprocess to avoid event loop issues
             cmd = [
@@ -115,9 +119,13 @@ class BotIntegratedScanner:
             env["GEMINI_API_KEY"] = api_key
             
             if log_callback:
+                log_callback(f"[DEBUG] Command: {' '.join(cmd)}")
                 log_callback(f"🚀 Starting {profile} scan on {target}")
             
             # Run and stream output
+            if log_callback:
+                log_callback(f"[DEBUG] Starting subprocess...")
+            
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -127,9 +135,15 @@ class BotIntegratedScanner:
                 env=env
             )
             
+            if log_callback:
+                log_callback(f"[DEBUG] Subprocess started with PID: {process.pid}")
+                log_callback(f"[DEBUG] Streaming output...")
+            
+            line_count = 0
             # Stream output line by line
             for line in process.stdout:
                 line = line.strip()
+                line_count += 1
                 if line and log_callback:
                     log_callback(line)
                 
@@ -143,17 +157,23 @@ class BotIntegratedScanner:
                 elif "exploit" in line.lower() and progress_callback:
                     progress_callback("💥 Exploitation", 80)
             
-            process.wait()
+            return_code = process.wait()
+            
+            if log_callback:
+                log_callback(f"[DEBUG] Process finished. Return code: {return_code}")
+                log_callback(f"[DEBUG] Total lines received: {line_count}")
             
             # Completion
             if progress_callback:
                 progress_callback("✅ Complete", 100)
             if log_callback:
-                log_callback(f"Scan complete!")
+                log_callback(f"Scan complete! Exit code: {return_code}")
                 
         except Exception as e:
             if log_callback:
                 log_callback(f"Scanner error: {str(e)}", "error")
+                import traceback
+                log_callback(f"Traceback: {traceback.format_exc()}", "error")
             raise
 
     def generate_report(self, session_id: str) -> str:

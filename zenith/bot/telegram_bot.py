@@ -587,11 +587,14 @@ _Let's hunt some bugs!_ 🎯
 
         try:
             bot = self.app.bot
-            await bot.edit_message_text(
-                chat_id=session.chat_id,
-                message_id=session.message_id,
-                text=self._format_live_status(session),
-                parse_mode=ParseMode.MARKDOWN
+            # Use create_task to avoid blocking
+            asyncio.create_task(
+                bot.edit_message_text(
+                    chat_id=session.chat_id,
+                    message_id=session.message_id,
+                    text=self._format_live_status(session),
+                    parse_mode=ParseMode.MARKDOWN
+                )
             )
         except Exception as e:
             # Message unchanged or other error
@@ -703,9 +706,15 @@ _Full report available via scanner._
             session = self.sessions[self.active_session]
             session.logs.append(f"[{level.upper()}] {message}")
             
-            # Schedule update
+            # Schedule update without blocking
             if self._running and self.app:
-                asyncio.create_task(self._update_live_message(session))
+                try:
+                    loop = asyncio.get_event_loop()
+                    loop.call_soon_threadsafe(
+                        lambda: asyncio.create_task(self._update_live_message(session))
+                    )
+                except RuntimeError:
+                    pass  # No event loop available
 
     def set_progress(self, phase: str, progress: int):
         """
@@ -717,4 +726,10 @@ _Full report available via scanner._
             session.progress = progress
             
             if self._running and self.app:
-                asyncio.create_task(self._update_live_message(session))
+                try:
+                    loop = asyncio.get_event_loop()
+                    loop.call_soon_threadsafe(
+                        lambda: asyncio.create_task(self._update_live_message(session))
+                    )
+                except RuntimeError:
+                    pass  # No event loop available

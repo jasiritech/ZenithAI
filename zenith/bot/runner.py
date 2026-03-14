@@ -99,69 +99,58 @@ class BotIntegratedScanner:
             if log_callback:
                 log_callback(f"Starting {profile} scan on {target}")
 
-            # Create temp config file
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-                config = {
-                    "gemini_api_key": api_key,
-                    "target": target,
-                    "profile": profile
-                }
-                json.dump(config, f)
-                config_file = f.name
-
-            try:
-                # Run zenith.py as subprocess to avoid event loop issues
-                cmd = [
-                    sys.executable,
-                    "-m", "zenith",
-                    "--target", target,
-                    "--profile", profile,
-                    "--config", config_file
-                ]
+            # Get path to zenith.py
+            zenith_script = Path(__file__).parent.parent.parent / "zenith.py"
+            
+            # Run zenith.py as subprocess to avoid event loop issues
+            cmd = [
+                sys.executable,
+                str(zenith_script),
+                "--target", target,
+                "--profile", profile
+            ]
+            
+            # Set environment with API key
+            env = os.environ.copy()
+            env["GEMINI_API_KEY"] = api_key
+            
+            if log_callback:
+                log_callback(f"🚀 Starting {profile} scan on {target}")
+            
+            # Run and stream output
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                env=env
+            )
+            
+            # Stream output line by line
+            for line in process.stdout:
+                line = line.strip()
+                if line and log_callback:
+                    log_callback(line)
                 
-                if log_callback:
-                    log_callback(f"Running command: {' '.join(cmd)}")
+                # Update progress based on output
+                if "Starting reconnaissance" in line and progress_callback:
+                    progress_callback("🔍 Reconnaissance", 20)
+                elif "Port scanning" in line and progress_callback:
+                    progress_callback("🌐 Port Scanning", 40)
+                elif "Running nuclei" in line and progress_callback:
+                    progress_callback("🔬 Vulnerability Scan", 60)
+                elif "exploit" in line.lower() and progress_callback:
+                    progress_callback("💥 Exploitation", 80)
+            
+            process.wait()
+            
+            # Completion
+            if progress_callback:
+                progress_callback("✅ Complete", 100)
+            if log_callback:
+                log_callback(f"Scan complete!")
                 
-                # Run and stream output
-                process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1
-                )
-                
-                # Stream output line by line
-                for line in process.stdout:
-                    line = line.strip()
-                    if line and log_callback:
-                        log_callback(line)
-                    
-                    # Update progress based on output
-                    if "Starting reconnaissance" in line and progress_callback:
-                        progress_callback("🔍 Reconnaissance", 20)
-                    elif "Port scanning" in line and progress_callback:
-                        progress_callback("🌐 Port Scanning", 40)
-                    elif "Running nuclei" in line and progress_callback:
-                        progress_callback("🔬 Vulnerability Scan", 60)
-                    elif "exploit" in line.lower() and progress_callback:
-                        progress_callback("💥 Exploitation", 80)
-                
-                process.wait()
-                
-                # Completion
-                if progress_callback:
-                    progress_callback("✅ Complete", 100)
-                if log_callback:
-                    log_callback(f"Scan complete!")
-                
-            finally:
-                # Cleanup temp config
-                try:
-                    os.unlink(config_file)
-                except:
-                    pass
-
         except Exception as e:
             if log_callback:
                 log_callback(f"Scanner error: {str(e)}", "error")

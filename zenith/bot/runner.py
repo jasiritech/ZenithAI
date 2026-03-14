@@ -107,16 +107,19 @@ class BotIntegratedScanner:
                 log_callback(f"[DEBUG] Script exists: {zenith_script.exists()}")
             
             # Run zenith.py as subprocess to avoid event loop issues
+            # Pass API key via both -k flag AND environment variable
             cmd = [
                 sys.executable,
                 str(zenith_script),
                 "--target", target,
-                "--profile", profile
+                "--profile", profile,
+                "-k", api_key
             ]
             
             # Set environment with API key
             env = os.environ.copy()
             env["GEMINI_API_KEY"] = api_key
+            env["GROQ_API_KEY"] = api_key
             
             if log_callback:
                 log_callback(f"[DEBUG] Command: {' '.join(cmd)}")

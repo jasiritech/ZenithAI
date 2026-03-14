@@ -102,82 +102,27 @@ class BotIntegratedScanner:
             # Hook into scanner for progress updates
             original_run = scanner.run
             
-            def wrapped_run():
-                """Run scanner with progress callbacks."""
-                phases = ["recon", "scan", "exploit", "report"]
-                phase_progress = {
-                    "recon": (0, 25),
-                    "scan": (25, 60),
-                    "exploit": (60, 85),
-                    "report": (85, 100)
-                }
+            # Simplified run - just execute the scan
+            # Initial callback
+            if progress_callback:
+                progress_callback("🔍 Starting scan...", 0)
+            if log_callback:
+                log_callback(f"Starting {profile} scan on {target}")
 
-                # Initial callback
-                if progress_callback:
-                    progress_callback("🔍 Reconnaissance", 0)
-                if log_callback:
-                    log_callback(f"Starting {profile} scan on {target}")
-
-                # Track phase changes
-                last_phase = "recon"
+            # Run the scanner
+            try:
+                scanner.run()
                 
-                # Override the phase display
-                original_phase = scanner.current_phase
-                
-                while scanner.running and scanner.iteration < scanner.max_iterations:
-                    # Check stop flag
-                    if self._stop_flag:
-                        scanner.running = False
-                        if log_callback:
-                            log_callback("Scan stopped by user", "warning")
-                        break
-
-                    # Update progress on phase change
-                    if scanner.current_phase != last_phase:
-                        last_phase = scanner.current_phase
-                        phase_emoji = {
-                            "recon": "🔍",
-                            "scan": "🔬",
-                            "exploit": "💥",
-                            "report": "📊"
-                        }.get(last_phase, "⚙️")
-                        
-                        if progress_callback:
-                            start, _ = phase_progress.get(last_phase, (0, 100))
-                            progress_callback(f"{phase_emoji} {last_phase.title()}", start)
-                        
-                        if log_callback:
-                            log_callback(f"Phase: {last_phase.upper()}")
-
-                    # Run single iteration
-                    try:
-                        scanner._run_iteration()
-                    except Exception as e:
-                        if log_callback:
-                            log_callback(f"Error: {str(e)[:50]}", "error")
-
-                    # Calculate progress within phase
-                    if progress_callback:
-                        phase_start, phase_end = phase_progress.get(last_phase, (0, 100))
-                        phase_progress_pct = min(
-                            scanner.phase_iteration * 5,  # 5% per iteration
-                            phase_end - phase_start
-                        )
-                        total_progress = phase_start + phase_progress_pct
-                        progress_callback(
-                            f"{last_phase.title()}: Iteration {scanner.phase_iteration}",
-                            int(total_progress)
-                        )
-
                 # Completion
                 if progress_callback:
                     progress_callback("✅ Complete", 100)
                 if log_callback:
                     vuln_count = sum(scanner.kb.get_vulnerability_count().values())
                     log_callback(f"Scan complete! Found {vuln_count} vulnerabilities")
-
-            # Run the wrapped scanner
-            wrapped_run()
+            except Exception as e:
+                if log_callback:
+                    log_callback(f"Scan error: {str(e)}", "error")
+                raise
 
         except Exception as e:
             if log_callback:

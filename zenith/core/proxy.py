@@ -228,65 +228,27 @@ class ProxyManager:
 
     def install_global_proxy(self):
         """
-        Install SOCKS proxy globally into Python's socket layer via PySocks.
+        Configure proxy globally via environment variables and make the proxy
+        settings available for requests library calls.
         
-        After calling this, ALL Python HTTP calls (urllib.request.urlopen,
-        requests.get, aiohttp, etc.) will automatically route through the
-        SOCKS proxy WITHOUT any code changes in the calling modules.
-        
-        This is the KEY method for making ZenithAI work on anonymous VPS
-        setups where all outbound traffic must go through Tor.
+        NOTE: We do NOT monkey-patch socket.socket because PySocks has bugs
+        with HTTPS/SSL connections. Instead we:
+        1. Set ALL_PROXY/http_proxy/https_proxy env vars for subprocess tools
+        2. Provide get_requests_proxies() for explicit requests library usage
+        3. Rely on torsocks/proxychains for wrapping external commands
         
         Returns:
             tuple: (success: bool, message: str)
         """
-        global _GLOBAL_PROXY_INSTALLED, _ORIGINAL_SOCKET
+        global _GLOBAL_PROXY_INSTALLED
         
         if not self.enabled:
             return True, "No proxy to install globally"
         
         if _GLOBAL_PROXY_INSTALLED:
-            return True, "Global proxy already installed"
+            return True, "Global proxy already configured"
         
-        try:
-            import socks as pysocks
-        except ImportError:
-            return False, (
-                "PySocks not installed! Run: pip install PySocks\n"
-                "This is required for SOCKS proxy support on anonymous VPS."
-            )
-        
-        # Map proxy type to PySocks constant
-        socks_type_map = {
-            "tor": pysocks.SOCKS5,
-            "socks5": pysocks.SOCKS5,
-            "socks4": pysocks.SOCKS4,
-            "http": pysocks.HTTP,
-        }
-        socks_type = socks_type_map.get(self.proxy_type)
-        if not socks_type:
-            return False, f"Unsupported proxy type for global install: {self.proxy_type}"
-        
-        # Save original socket class for restore
-        _ORIGINAL_SOCKET = socket.socket
-        
-        # Set default proxy for ALL sockets
-        pysocks.set_default_proxy(
-            socks_type,
-            self.host,
-            self.port,
-            rdns=True,  # Resolve DNS through proxy (important for Tor!)
-            username=self.username or None,
-            password=self.password or None,
-        )
-        
-        # Monkey-patch socket.socket -> socks.socksocket
-        socket.socket = pysocks.socksocket
-        
-        _GLOBAL_PROXY_INSTALLED = True
-        self._global_installed = True
-        
-        # Also set environment variables for subprocess calls
+        # Set environment variables for subprocess calls
         proxy_url = self.get_socks5h_url() or self.get_proxy_url()
         if proxy_url:
             os.environ["ALL_PROXY"] = proxy_url
@@ -295,9 +257,12 @@ class ProxyManager:
             os.environ["HTTP_PROXY"] = proxy_url
             os.environ["HTTPS_PROXY"] = proxy_url
         
+        _GLOBAL_PROXY_INSTALLED = True
+        self._global_installed = True
+        
         return True, (
-            f"Global SOCKS proxy installed: {self.proxy_type.upper()} "
-            f"-> {self.host}:{self.port} (DNS via proxy: ON)"
+            f"Proxy configured: {self.proxy_type.upper()} "
+            f"-> {self.host}:{self.port} (env vars + requests proxies)"
         )
 
     def uninstall_global_proxy(self):

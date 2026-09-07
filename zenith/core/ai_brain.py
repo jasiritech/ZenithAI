@@ -773,7 +773,11 @@ Use these for deep vulnerability testing - they are more thorough than manual sc
         return response.text.strip()
 
     def _call_custom(self, prompt, system_prompt=None, max_tokens=2048):
-        """Call custom OpenAI-compatible endpoint (APInex, DeepSeek, Ollama, OpenRouter, etc.)."""
+        """Call custom OpenAI-compatible endpoint (APInex, DeepSeek, Ollama, OpenRouter, etc.).
+        
+        Automatically routes through SOCKS proxy if PySocks global proxy is installed
+        (for anonymous VPS setups with Tor).
+        """
         endpoint = f"{self.base_url}/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -793,11 +797,25 @@ Use these for deep vulnerability testing - they are more thorough than manual sc
             "temperature": 0.7
         }
         
-        # Try requests first, fallback to urllib.request
         data_bytes = json.dumps(payload).encode("utf-8")
+        
+        # Build proxy config for requests library
+        requests_proxies = None
+        try:
+            from zenith.core.proxy import ProxyManager
+            pm = ProxyManager.auto_detect()
+            if pm.enabled:
+                requests_proxies = pm.get_requests_proxies()
+        except Exception:
+            pass
+        
+        # Try requests first (with proxy support), fallback to urllib
         try:
             import requests
-            resp = requests.post(endpoint, json=payload, headers=headers, timeout=90)
+            resp = requests.post(
+                endpoint, json=payload, headers=headers, timeout=90,
+                proxies=requests_proxies,
+            )
             if resp.status_code == 200:
                 res_data = resp.json()
                 content = res_data["choices"][0]["message"]["content"]
@@ -806,6 +824,7 @@ Use these for deep vulnerability testing - they are more thorough than manual sc
             else:
                 raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
         except Exception as req_err:
+            # urllib fallback - PySocks global monkey-patch handles SOCKS routing
             import urllib.request
             import ssl
             ctx = ssl._create_unverified_context()

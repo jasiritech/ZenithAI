@@ -109,6 +109,31 @@ class ZenithScanner:
             )
             Display.info(f"Session: {self.session_id}")
 
+        # Initialize Proxy Manager FIRST (before AI Brain, so global proxy is active for API calls)
+        Display.info("Initializing Proxy Manager...")
+        self.proxy = ProxyManager(proxy_config) if proxy_config else ProxyManager.from_env()
+        self.proxy_auto_disabled = False  # Track if proxy was auto-disabled
+        if self.proxy.enabled:
+            Display.info(f"Proxy: {self.proxy.get_status()}")
+            # Install global SOCKS proxy into Python's socket layer
+            # This makes ALL Python HTTP calls (urllib, requests) route through proxy
+            ok_global, msg_global = self.proxy.install_global_proxy()
+            if ok_global:
+                Display.success(f"Global proxy: {msg_global}")
+            else:
+                Display.warning(f"Global proxy install failed: {msg_global}")
+            # Verify proxy connectivity
+            ok, msg = self.proxy.verify()
+            if ok:
+                Display.success(f"Proxy verified: {msg}")
+            else:
+                Display.warning(f"Proxy verification failed: {msg}")
+                Display.warning(f"⚠ Disabling proxy - commands will run with DIRECT connections.")
+                Display.warning(f"💡 To use proxy, ensure Tor/SOCKS is running: sudo systemctl start tor")
+                self.proxy.enabled = False
+                self.proxy.uninstall_global_proxy()
+                self.proxy_auto_disabled = True
+
         # Initialize components
         Display.info("Initializing AI Brain...")
         self.ai = AIBrain(api_key, model_choice=model, base_url=base_url, provider=provider)
@@ -119,6 +144,7 @@ class ZenithScanner:
             sudo_password=sudo_password,
             default_timeout=self.profile_timeout,
             profile=self.profile_name,
+            proxy_env=self.proxy.get_env_vars() if self.proxy.enabled else None,
         )
         
         Display.info("Initializing Knowledge Base...")
@@ -127,21 +153,6 @@ class ZenithScanner:
         # Initialize Command Validator
         Display.info("Initializing Command Validator...")
         self.validator = CommandValidator(target=target)
-
-        # Initialize Proxy Manager
-        self.proxy = ProxyManager(proxy_config) if proxy_config else ProxyManager.from_env()
-        self.proxy_auto_disabled = False  # Track if proxy was auto-disabled
-        if self.proxy.enabled:
-            Display.info(f"Proxy: {self.proxy.get_status()}")
-            ok, msg = self.proxy.verify()
-            if ok:
-                Display.success(f"Proxy verified: {msg}")
-            else:
-                Display.warning(f"Proxy verification failed: {msg}")
-                Display.warning(f"⚠ Disabling proxy - commands will run with DIRECT connections.")
-                Display.warning(f"💡 To use proxy, ensure Tor/SOCKS is running: sudo systemctl start tor")
-                self.proxy.enabled = False
-                self.proxy_auto_disabled = True
 
         # Initialize Notifier
         self.notifier = Notifier(notify_config) if notify_config else Notifier.from_env()

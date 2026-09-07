@@ -28,8 +28,16 @@ class TerminalExecutor:
         "chmod -R 777 /",
     ]
 
-    def __init__(self, working_dir="/tmp/zenith_workspace", sudo_password=None, default_timeout=None, profile="custom"):
-        """Initialize Terminal Executor."""
+    def __init__(self, working_dir="/tmp/zenith_workspace", sudo_password=None, default_timeout=None, profile="custom", proxy_env=None):
+        """Initialize Terminal Executor.
+        
+        Args:
+            working_dir: Directory for temporary script files
+            sudo_password: Optional sudo password for automated execution
+            default_timeout: Default timeout for commands
+            profile: Scan profile name
+            proxy_env: Optional dict of proxy env vars to inject into all subprocess calls
+        """
         self.working_dir = working_dir
         self.command_history = []
         self.total_commands = 0
@@ -41,6 +49,7 @@ class TerminalExecutor:
         self.profile = profile
         self.command_cache = {}
         self.cache_ttl = 300
+        self.proxy_env = proxy_env or {}  # Proxy env vars to inject into subprocesses
         
         # Create working directory
         os.makedirs(working_dir, exist_ok=True)
@@ -260,6 +269,9 @@ class TerminalExecutor:
             env = os.environ.copy()
             env["DEBIAN_FRONTEND"] = "noninteractive"
             env["TERM"] = "dumb"
+            # Inject proxy env vars so subprocess tools route through proxy
+            if self.proxy_env:
+                env.update(self.proxy_env)
 
             process = subprocess.Popen(
                 command,

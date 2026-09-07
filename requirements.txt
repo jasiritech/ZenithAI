@@ -1,6 +1,7 @@
 google-generativeai>=0.8.0
 groq>=0.4.0
 requests>=2.31.0
+PySocks>=1.7.1
 
 # Bot Integration (Telegram/WhatsApp remote control)
 python-telegram-bot>=21.0

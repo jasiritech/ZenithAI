@@ -45,11 +45,11 @@
         "min_severity": "HIGH"
     },
     
-    "_proxy_comment": "=== PROXY/TOR ===",
+    "_proxy_comment": "=== PROXY/TOR (auto-detects Tor SOCKS on 127.0.0.1:9050) ===",
     
     "proxy": {
-        "enabled": false,
-        "type": "socks5",
+        "enabled": true,
+        "type": "auto",
         "host": "127.0.0.1",
         "port": 9050
     }

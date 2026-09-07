@@ -1,0 +1,404 @@
+"""
+Zenith Knowledge Base - Stores everything that has been discovered.
+Database of all scanning results and findings.
+"""
+
+import json
+import os
+import re
+import sys
+import time
+import tempfile
+from datetime import datetime
+
+# Fix Windows console encoding if needed
+if sys.platform == "win32":
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
+class KnowledgeBase:
+    """
+    Knowledge Base - Stores all scanning results and findings.
+    The AI reads this to know what has been discovered and choose the next action.
+    """
+
+    def __init__(self, target, save_dir=None):
+        """Initialize Knowledge Base."""
+        self.target = target
+        if not save_dir:
+            save_dir = os.path.join(tempfile.gettempdir(), "zenith_workspace")
+        self.save_dir = save_dir
+        os.makedirs(self.save_dir, exist_ok=True)
+        
+        # Clean target name for filename
+        safe_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', target)
+        self.db_file = os.path.join(save_dir, f"{safe_name}_kb.json")
+        
+        # Load existing or create new
+        self.data = self._load() or self._create_default()
+        self._save()
+        
+        print(f"    [✓] Knowledge Base ready: {self.db_file}")
+
+    def _create_default(self):
+        """Create default KB structure."""
+        return {
+            "meta": {
+                "target": self.target,
+                "start_time": datetime.now().isoformat(),
+                "last_updated": datetime.now().isoformat(),
+                "total_commands_run": 0,
+                "current_phase": "recon"
+            },
+            "target_info": {
+                "url": self.target,
+                "ip_addresses": [],
+                "hostname": "",
+                "technologies": [],
+                "web_server": "",
+                "os_detected": "",
+                "cms": "",
+                "waf_detected": ""
+            },
+            "open_ports": [],          # [{"port": 80, "service": "http", "version": "Apache 2.4"}]
+            "subdomains": [],          # ["sub1.target.com", ...]
+            "directories": [],         # ["/admin", "/login", ...]
+            "vulnerabilities": [],     # [{"title": "", "severity": "", "description": "", "evidence": ""}]
+            "credentials": [],         # [{"username": "", "password": "", "source": ""}]
+            "interesting_files": [],   # [{"path": "", "description": ""}]
+            "command_log": [],         # [{"command": "", "output_summary": "", "timestamp": ""}]
+            "attack_surface": {
+                "forms": [],           # [{"url": "", "method": "", "params": []}]
+                "api_endpoints": [],
+                "input_points": [],
+                "file_uploads": []
+            },
+            "notes": []               # AI notes to itself
+        }
+
+    def _load(self):
+        """Load existing KB from file."""
+        if os.path.exists(self.db_file):
+            try:
+                with open(self.db_file, 'r', encoding='utf-8', errors='replace') as f:
+                    data = json.load(f)
+                print(f"    [*] Loaded existing KB with {len(data.get('command_log', []))} previous commands")
+                return data
+            except (json.JSONDecodeError, Exception) as e:
+                print(f"    [!] KB file corrupted, creating fresh: {e}")
+                return None
+        return None
+
+    def _save(self):
+        """Save KB to file."""
+        self.data["meta"]["last_updated"] = datetime.now().isoformat()
+        try:
+            with open(self.db_file, 'w', encoding='utf-8') as f:
+                json.dump(self.data, f, indent=2, default=str)
+        except Exception as e:
+            print(f"    [!] Failed to save KB: {e}")
+
+    def update_phase(self, new_phase):
+        """Update current scanning phase."""
+        self.data["meta"]["current_phase"] = new_phase
+        self._save()
+
+    def add_port(self, port, service="", version="", protocol="tcp"):
+        """Add discovered open port."""
+        port_entry = {"port": port, "service": service, "version": version, "protocol": protocol}
+        if not any(p["port"] == port and p["protocol"] == protocol for p in self.data["open_ports"]):
+            self.data["open_ports"].append(port_entry)
+            self._save()
+
+    def add_subdomain(self, subdomain):
+        """Add discovered subdomain."""
+        if subdomain and subdomain not in self.data["subdomains"]:
+            self.data["subdomains"].append(subdomain)
+            self._save()
+
+    def add_directory(self, directory):
+        """Add discovered directory."""
+        if directory and directory not in self.data["directories"]:
+            self.data["directories"].append(directory)
+            self._save()
+
+    def add_vulnerability(self, title, severity="MEDIUM", description="", evidence=""):
+        """Add discovered vulnerability."""
+        vuln = {
+            "title": title,
+            "severity": severity,
+            "description": description,
+            "evidence": evidence[:500],  # Limit evidence size
+            "discovered_at": datetime.now().isoformat()
+        }
+        # Deduplicate by title
+        if not any(v["title"] == title for v in self.data["vulnerabilities"]):
+            self.data["vulnerabilities"].append(vuln)
+            self._save()
+
+    def add_technology(self, tech):
+        """Add detected technology."""
+        if tech and tech not in self.data["target_info"]["technologies"]:
+            self.data["target_info"]["technologies"].append(tech)
+            self._save()
+
+    def add_credential(self, username, password, source=""):
+        """Add discovered credential."""
+        cred = {"username": username, "password": password, "source": source}
+        if cred not in self.data["credentials"]:
+            self.data["credentials"].append(cred)
+            self._save()
+
+    def log_command(self, command, output, success=True):
+        """Log executed command and its output."""
+        self.data["meta"]["total_commands_run"] += 1
+        
+        # Keep output summary short for KB context
+        output_summary = output[:500] if output else ""
+        
+        self.data["command_log"].append({
+            "command": command,
+            "output_summary": output_summary,
+            "success": success,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        # Auto-parse common outputs
+        self._auto_parse(command, output)
+        self._save()
+
+    def _auto_parse(self, command, output):
+        """Automatically parse common tool outputs to extract data."""
+        if not output:
+            return
+        
+        output_lower = output.lower()
+
+        # ── Parse nmap output ──
+        if "nmap" in command.lower() or "nmap" in output_lower:
+            # Extract ports
+            port_pattern = re.findall(r'(\d+)/(tcp|udp)\s+open\s+(\S+)(?:\s+(.*))?', output)
+            for port, proto, service, version in port_pattern:
+                self.add_port(int(port), service, version.strip() if version else "", proto)
+            
+            # Extract OS
+            os_match = re.search(r'OS details?:\s*(.+)', output)
+            if os_match:
+                self.data["target_info"]["os_detected"] = os_match.group(1).strip()
+
+            # Extract IP
+            ip_match = re.search(r'Nmap scan report for .*?(\d+\.\d+\.\d+\.\d+)', output)
+            if ip_match:
+                ip = ip_match.group(1)
+                if ip not in self.data["target_info"]["ip_addresses"]:
+                    self.data["target_info"]["ip_addresses"].append(ip)
+
+        # ── Parse whatweb output ──
+        if "whatweb" in command.lower():
+            tech_patterns = re.findall(r'\[(\S+)\]', output)
+            for tech in tech_patterns:
+                if tech not in ['200', '301', '302', '403', '404', '500']:
+                    self.add_technology(tech)
+
+        # ── Parse gobuster/dirb/dirsearch/ffuf output ──
+        if any(tool in command.lower() for tool in ["gobuster", "dirb", "dirsearch", "ffuf"]):
+            dir_patterns = re.findall(r'(/\S+)\s+.*?(?:Status|Code):\s*(\d+)', output)
+            for directory, status in dir_patterns:
+                if status in ['200', '301', '302', '403']:
+                    self.add_directory(f"{directory} [{status}]")
+
+        # ── Parse nuclei output ──
+        if "nuclei" in command.lower() or "[nuclei" in output_lower:
+            vuln_patterns = re.findall(r'\[(\w+)\]\s+\[([^\]]+)\]\s+(.+)', output)
+            for severity, template, detail in vuln_patterns:
+                self.add_vulnerability(
+                    title=template,
+                    severity=severity.upper(),
+                    description=detail.strip(),
+                    evidence=f"Nuclei template: {template}"
+                )
+
+        # ── Universal: Parse Python script output for open ports ──
+        # Catches: [OPEN] Port 80, Port 443: OPEN, [+] Port 22 is OPEN
+        port_hits = re.findall(r'(?:\[(?:OPEN|\+)\]\s*)?[Pp]ort\s+(\d+)(?:\s*(?:is\s+)?(?:OPEN|open)|\s*:\s*OPEN)', output)
+        for port_str in port_hits:
+            port_num = int(port_str)
+            if 1 <= port_num <= 65535:
+                self.add_port(port_num, "unknown", "", "tcp")
+
+        # ── Universal: Detect IP addresses ──
+        ip_hits = re.findall(r'(?:IP(?:\s+Address)?|Resolved?)\s*:\s*(\d+\.\d+\.\d+\.\d+)', output)
+        for ip in ip_hits:
+            if ip not in self.data["target_info"]["ip_addresses"]:
+                self.data["target_info"]["ip_addresses"].append(ip)
+
+        # ── Universal: Detect technologies from script output ──
+        tech_keywords = {
+            'Server': r'[Ss]erver:\s*(\S+(?:/[\d.]+)?)',
+            'X-Powered-By': r'X-Powered-By:\s*(\S+(?:/[\d.]+)?)',
+            'Framework': r'(?:Framework|Generator):\s*(\S+)',
+        }
+        for label, pattern in tech_keywords.items():
+            for match in re.findall(pattern, output):
+                self.add_technology(f"{label}: {match}")
+
+        # ── Universal: Auto-detect critical/high severity findings from output ──
+        # Catches patterns like: ⚠ VULNERABLE, POTENTIAL SQLi, XSS REFLECTED, CERT VERIFICATION FAILED
+        vuln_signatures = [
+            (r'⚠\s*(?:VULNERABLE|POTENTIAL\s+SQLi|CERT(?:IFICATE)?\s+(?:EXPIR|VERIF))', 'HIGH'),
+            (r'(?:POTENTIAL|POSSIBLE)\s+SQL\s*[Ii]njection', 'HIGH'),
+            (r'(?:REFLECTED|XSS)\s*.*?(?:\?|param)', 'HIGH'),
+            (r'CORS\s+.*?(?:VULNERABLE|\*)', 'MEDIUM'),
+            (r'TRACE\s+enabled', 'MEDIUM'),
+            (r'(?:MISSING|✗)\s+(?:Strict-Transport|Content-Security-Policy|X-Frame-Options)', 'LOW'),
+            (r'\[200\]\s+/(?:\.env|\.git/config|\.git/HEAD|wp-config\.php|phpinfo\.php|server-(?:status|info)|actuator/env|swagger\.json|openapi\.json)', 'HIGH'),
+            (r'\[200\]\s+/(?:\.DS_Store|backup|\.htaccess|web\.config|config\.json|config\.ya?ml)', 'MEDIUM'),
+            (r'\[500\]\s+.*(?:sql|inject|error|syntax)', 'HIGH'),
+        ]
+        for pattern, severity in vuln_signatures:
+            matches = re.findall(pattern, output, re.IGNORECASE)
+            for match_text in matches[:3]:  # Max 3 per pattern to avoid spam
+                # Build a title from the match context
+                # Find the line containing the match for context
+                for line in output.split('\n'):
+                    if re.search(pattern, line, re.IGNORECASE):
+                        title = line.strip()[:120]
+                        self.add_vulnerability(
+                            title=title,
+                            severity=severity,
+                            description=f"Auto-detected from script output",
+                            evidence=line.strip()[:300]
+                        )
+                        break
+
+        # ── Parse Zenith Advanced Module output ──
+        # IDOR/BOLA findings
+        idor_hits = re.findall(r'\[(?:CRITICAL|HIGH)\]\s*(?:Finding\s*#\d+:\s*)?(IDOR|BOLA|PATH_TRAVERSAL_IDOR).*?(?:Detail|URL):\s*(.+)', output)
+        for vuln_type, detail in idor_hits[:5]:
+            self.add_vulnerability(
+                title=f"IDOR: {detail.strip()[:100]}",
+                severity="HIGH",
+                description=f"Insecure Direct Object Reference - {vuln_type}",
+                evidence=detail.strip()[:300]
+            )
+
+        # SSRF findings
+        ssrf_hits = re.findall(r'\[(?:CRITICAL|HIGH)\]\s*(?:Finding\s*#\d+:\s*)?(SSRF|BLIND_SSRF|HEADER_SSRF).*?(?:Detail|Payload):\s*(.+)', output)
+        for vuln_type, detail in ssrf_hits[:5]:
+            self.add_vulnerability(
+                title=f"SSRF: {detail.strip()[:100]}",
+                severity="CRITICAL" if "metadata" in detail.lower() else "HIGH",
+                description=f"Server-Side Request Forgery - {vuln_type}",
+                evidence=detail.strip()[:300]
+            )
+
+        # JWT findings
+        jwt_hits = re.findall(r'\[(?:CRITICAL|HIGH)\]\s*(?:Finding\s*#\d+:\s*)?(JWT_\w+).*?(?:Detail|Secret):\s*(.+)', output)
+        for vuln_type, detail in jwt_hits[:5]:
+            sev = "CRITICAL" if any(w in vuln_type for w in ['NONE', 'WEAK_SECRET', 'FORGED', 'KID']) else "HIGH"
+            self.add_vulnerability(
+                title=f"JWT: {detail.strip()[:100]}",
+                severity=sev,
+                description=f"JWT Vulnerability - {vuln_type}",
+                evidence=detail.strip()[:300]
+            )
+
+        # SSTI findings
+        ssti_hits = re.findall(r'\[(?:CRITICAL|HIGH)\]\s*(?:Finding\s*#\d+:\s*)?(SSTI\w*).*?(?:Detail|Engine):\s*(.+)', output)
+        for vuln_type, detail in ssti_hits[:5]:
+            sev = "CRITICAL" if 'uid=' in output or 'RCE' in output.upper() else "HIGH"
+            self.add_vulnerability(
+                title=f"SSTI: {detail.strip()[:100]}",
+                severity=sev,
+                description=f"Server-Side Template Injection - {vuln_type}",
+                evidence=detail.strip()[:300]
+            )
+
+        # Race Condition findings
+        race_hits = re.findall(r'\[(?:CRITICAL|HIGH)\]\s*(?:Finding\s*#\d+:\s*)?(RACE_\w+|DOUBLE_ACTION|NO_RATE_LIMIT|RATE_LIMIT_BYPASS).*?(?:Detail|Endpoint):\s*(.+)', output)
+        for vuln_type, detail in race_hits[:5]:
+            sev = "CRITICAL" if 'FINANCIAL' in detail.upper() or vuln_type == 'DOUBLE_ACTION' else "HIGH"
+            self.add_vulnerability(
+                title=f"Race Condition: {detail.strip()[:100]}",
+                severity=sev,
+                description=f"Concurrency Vulnerability - {vuln_type}",
+                evidence=detail.strip()[:300]
+            )
+
+        # Generic module summary lines: ⚠ TOTAL IDOR FINDINGS: N
+        total_findings = re.findall(r'⚠\s*TOTAL\s+(\w+)\s+FINDINGS:\s*(\d+)', output)
+        for module_name, count in total_findings:
+            if int(count) > 0:
+                self.add_note(f"Module {module_name}: {count} findings detected")
+
+    def add_note(self, note):
+        """AI adds a note to itself."""
+        self.data["notes"].append({
+            "note": note,
+            "timestamp": datetime.now().isoformat()
+        })
+        self._save()
+
+    def get_context(self):
+        """
+        Get KB context for AI. Returns a summarized version to save tokens.
+        """
+        # Create a compact version for AI consumption
+        context = {
+            "target": self.data["target_info"],
+            "phase": self.data["meta"]["current_phase"],
+            "commands_run": self.data["meta"]["total_commands_run"],
+            "open_ports": self.data["open_ports"],
+            "subdomains": self.data["subdomains"][:20],  # Limit
+            "directories": self.data["directories"][:30],
+            "vulnerabilities": self.data["vulnerabilities"],
+            "technologies": self.data["target_info"]["technologies"],
+            "credentials": self.data["credentials"],
+            "recent_commands": self.data["command_log"][-10:],  # Last 10 commands
+            "notes": self.data["notes"][-5:],
+            "attack_surface": self.data["attack_surface"]
+        }
+        return context
+
+    def get_full_data(self):
+        """Get complete KB data."""
+        return self.data
+
+    def get_vulnerability_count(self):
+        """Count vulnerabilities by severity."""
+        counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
+        for vuln in self.data["vulnerabilities"]:
+            sev = vuln.get("severity", "INFO").upper()
+            if sev in counts:
+                counts[sev] += 1
+            else:
+                counts["INFO"] += 1
+        return counts
+
+    def export_report(self, filename=None):
+        """Export full KB as JSON report."""
+        if not filename:
+            safe_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', self.target)
+            filename = os.path.join(self.save_dir, f"{safe_name}_report.json")
+        
+        report = {
+            "report_info": {
+                "tool": "Zenith AI Security Scanner v2.0",
+                "target": self.target,
+                "generated_at": datetime.now().isoformat(),
+                "total_commands": self.data["meta"]["total_commands_run"],
+                "duration": "See timestamps in command_log"
+            },
+            "findings": self.data
+        }
+        
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(report, f, indent=2, default=str)
+        
+        return filename

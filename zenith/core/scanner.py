@@ -1,0 +1,1005 @@
+"""
+Zenith Scanner - The main autonomous scanning engine.
+This is the core engine - it connects the AI Brain, Terminal, and Knowledge Base.
+"""
+
+import json
+import time
+import os
+import sys
+import signal
+import tempfile
+from datetime import datetime, timedelta
+
+from zenith.core.ai_brain import AIBrain
+from zenith.core.executor import TerminalExecutor
+from zenith.core.knowledge_base import KnowledgeBase
+from zenith.core.session import SessionManager
+from zenith.core.validator import CommandValidator
+from zenith.core.proxy import ProxyManager
+from zenith.core.profiles import get_profile
+from zenith.utils.display import Display, Colors
+from zenith.utils.report_generator import HTMLReportGenerator
+from zenith.utils.notifier import Notifier
+
+
+class ZenithScanner:
+    """
+    Zenith Autonomous AI Security Scanner.
+    
+    Flow:
+    1. User provides API key and target
+    2. AI thinks about the first action (recon)
+    3. Terminal executes the command
+    4. Output is returned to the AI
+    5. AI thinks again, chooses a new action
+    6. Loop continues until the goal is achieved or user stops it
+    """
+
+    PHASES = ["recon", "scan", "exploit", "post_exploit", "report"]
+    
+    # Maximum iterations to prevent infinite loops
+    MAX_ITERATIONS = 200
+    MAX_PHASE_ITERATIONS = 50
+
+    def __init__(self, api_key, target, goal=None, model="flash", max_iterations=None, 
+                 working_dir=None, profile=None, proxy_config=None, notify_config=None,
+                 resume_session=None, sudo_password=None, base_url=None, provider=None):
+        """
+        Initialize Zenith Scanner.
+        
+        Args:
+            api_key: AI API key (Gemini, Groq, or custom provider)
+            target: Target URL or IP
+            goal: Scanning goal (default: find all vulnerabilities)
+            model: AI model name or alias ('flash', 'pro', 'groq', 'free/gemini-3.8-flash', etc.)
+            max_iterations: Maximum AI iterations
+            working_dir: Working directory for output files
+            profile: Scan profile name (quick, full, stealth, web, network, api)
+            proxy_config: Proxy configuration dict
+            notify_config: Notification configuration dict
+            resume_session: Session ID to resume
+            base_url: Optional base URL for OpenAI-compatible providers
+            provider: Optional provider name ('gemini', 'groq', 'custom')
+        """
+        Display.banner()
+        Display.section("INITIALIZING ZENITH AI SCANNER")
+
+        self.target = target
+        self.goal = goal or f"Find all security vulnerabilities on {target}. Perform thorough reconnaissance, scan for vulnerabilities, and report findings."
+        self.max_iterations = max_iterations or self.MAX_ITERATIONS
+        self.start_time = datetime.now()
+        self.running = True
+        self.current_phase = "recon"
+        self.phase_iteration = 0
+        self.iteration = 0
+        self.profile_name = profile or "custom"
+        self.api_key = api_key
+        self.model_choice = model
+        self.base_url = base_url
+        self.provider = provider
+        profile_data = get_profile(self.profile_name) if self.profile_name != "custom" else None
+        self.profile_timeout = profile_data.get("timeout_per_command") if profile_data else None
+        
+        if working_dir:
+            self.working_dir = working_dir
+        else:
+            base_tmp = tempfile.gettempdir()
+            self.working_dir = os.path.join(base_tmp, f"zenith_{int(time.time())}")
+
+        # Initialize Session Manager
+        Display.info("Initializing Session Manager...")
+        self.session_mgr = SessionManager()
+        
+        # Resume or create session
+        if resume_session:
+            self.session_id = resume_session
+            session_data = self.session_mgr.load_session(resume_session)
+            if session_data:
+                self.iteration = session_data.get("current_iteration", 0)
+                self.current_phase = session_data.get("current_phase", "recon")
+                self.phase_iteration = session_data.get("phase_iteration", 0)
+                Display.success(f"Resumed session: {resume_session}")
+                Display.info(f"Resuming from iteration {self.iteration}, phase: {self.current_phase}")
+        else:
+            self.session_id = self.session_mgr.create_session(
+                target=target, goal=self.goal, model=model,
+                api_key_hash=SessionManager.hash_api_key(api_key),
+                max_iterations=self.max_iterations
+            )
+            Display.info(f"Session: {self.session_id}")
+
+        # Initialize components
+        Display.info("Initializing AI Brain...")
+        self.ai = AIBrain(api_key, model_choice=model, base_url=base_url, provider=provider)
+        
+        Display.info("Initializing Terminal Executor...")
+        self.executor = TerminalExecutor(
+            working_dir=self.working_dir,
+            sudo_password=sudo_password,
+            default_timeout=self.profile_timeout,
+            profile=self.profile_name,
+        )
+        
+        Display.info("Initializing Knowledge Base...")
+        self.kb = KnowledgeBase(target, save_dir=self.working_dir)
+
+        # Initialize Command Validator
+        Display.info("Initializing Command Validator...")
+        self.validator = CommandValidator(target=target)
+
+        # Initialize Proxy Manager
+        self.proxy = ProxyManager(proxy_config) if proxy_config else ProxyManager.from_env()
+        self.proxy_auto_disabled = False  # Track if proxy was auto-disabled
+        if self.proxy.enabled:
+            Display.info(f"Proxy: {self.proxy.get_status()}")
+            ok, msg = self.proxy.verify()
+            if ok:
+                Display.success(f"Proxy verified: {msg}")
+            else:
+                Display.warning(f"Proxy verification failed: {msg}")
+                Display.warning(f"⚠ Disabling proxy - commands will run with DIRECT connections.")
+                Display.warning(f"💡 To use proxy, ensure Tor/SOCKS is running: sudo systemctl start tor")
+                self.proxy.enabled = False
+                self.proxy_auto_disabled = True
+
+        # Initialize Notifier
+        self.notifier = Notifier(notify_config) if notify_config else Notifier.from_env()
+        if self.notifier.enabled:
+            Display.success("Notifications enabled!")
+
+        # Initialize HTML Report Generator
+        self.html_reporter = HTMLReportGenerator()
+        
+        # Setup signal handler for graceful stop
+        signal.signal(signal.SIGINT, self._signal_handler)
+        
+        Display.success("All systems initialized!")
+        Display.info(f"Target: {Colors.BOLD}{target}{Colors.RESET}")
+        Display.info(f"Profile: {self.profile_name}")
+        Display.info(f"Goal: {self.goal[:80]}...")
+        Display.info(f"Model: {self.ai.model_name}")
+        Display.info(f"Max iterations: {self.max_iterations}")
+        print()
+
+    def _signal_handler(self, signum, frame):
+        """Handle Ctrl+C gracefully - kills running command and exits."""
+        # Second Ctrl+C = force exit immediately
+        if not self.running:
+            print(f"\n  {Colors.RED}[!] Force exit!{Colors.RESET}")
+            # Kill any running subprocess
+            self.executor.kill_current()
+            os._exit(1)
+
+        print(f"\n\n  {Colors.YELLOW}[!] Ctrl+C detected - Stopping...{Colors.RESET}")
+        self.running = False
+
+        # Kill the currently running command (nmap, nikto, etc.)
+        if self.executor.kill_current():
+            print(f"  {Colors.YELLOW}[!] Killed running command.{Colors.RESET}")
+
+        # Save session for resume
+        try:
+            self.session_mgr.mark_interrupted(self.session_id)
+            self.session_mgr.save_state(
+                self.session_id,
+                current_iteration=self.iteration,
+                current_phase=self.current_phase,
+                phase_iteration=self.phase_iteration,
+                working_dir=self.working_dir,
+                knowledge_base_file=self.kb.db_file,
+            )
+            Display.info(f"Session saved! Resume with: python3 zenith.py --resume {self.session_id}")
+        except Exception:
+            pass  # Don't crash on save failure during exit
+
+    def _interactive_review(self):
+        """
+        Interactive review before final report.
+        Shows findings and asks user if they want to continue or have questions.
+        
+        Returns:
+            bool: True if user wants to continue, False to generate report
+        """
+        print()
+        Display.section("📋 SCAN REVIEW - CHECK FINDINGS")
+        
+        # Show summary of what was found
+        vuln_counts = self.kb.get_vulnerability_count()
+        total_vulns = sum(vuln_counts.values())
+        
+        # Get data once for reuse
+        kb_data = self.kb.get_full_data()
+        vulnerabilities = kb_data.get("vulnerabilities", [])
+        open_ports = kb_data.get("open_ports", [])
+        
+        # Modern findings summary card
+        summary_lines = [
+            f"{Colors.BOLD}📊 FINDINGS SUMMARY{Colors.RESET}",
+            f"",
+            f"  {Colors.NEON_RED}🔴{Colors.RESET} CRITICAL  {Colors.BOLD}{vuln_counts.get('CRITICAL', 0)}{Colors.RESET}",
+            f"  {Colors.RED}🟠{Colors.RESET} HIGH      {Colors.BOLD}{vuln_counts.get('HIGH', 0)}{Colors.RESET}",
+            f"  {Colors.YELLOW}🟡{Colors.RESET} MEDIUM    {Colors.BOLD}{vuln_counts.get('MEDIUM', 0)}{Colors.RESET}",
+            f"  {Colors.BLUE}🔵{Colors.RESET} LOW       {Colors.BOLD}{vuln_counts.get('LOW', 0)}{Colors.RESET}",
+            f"  {Colors.GRAY}⚪{Colors.RESET} INFO      {Colors.BOLD}{vuln_counts.get('INFO', 0)}{Colors.RESET}",
+            f"",
+            f"  {Colors.BOLD}TOTAL: {total_vulns} vulnerabilities{Colors.RESET}",
+        ]
+        Display._box(summary_lines, color=Colors.CYAN, style="rounded", title="─── FINDINGS ───")
+        print()
+        
+        # Show actual findings
+        if vulnerabilities:
+            vuln_lines = [f"{Colors.BOLD}🔍 VULNERABILITY DETAILS{Colors.RESET}", ""]
+            for i, vuln in enumerate(vulnerabilities[:10], 1):
+                severity = vuln.get("severity", "INFO").upper()
+                title = vuln.get("title", vuln.get("description", "Unknown"))[:55]
+                sev_colors_map = {"CRITICAL": Colors.NEON_RED, "HIGH": Colors.RED, "MEDIUM": Colors.YELLOW, "LOW": Colors.BLUE}
+                sc = sev_colors_map.get(severity, Colors.DIM)
+                vuln_lines.append(f"  {sc}▪{Colors.RESET} {sc}[{severity}]{Colors.RESET} {title}")
+            if len(vulnerabilities) > 10:
+                vuln_lines.append(f"  {Colors.DIM}⋯ and {len(vulnerabilities) - 10} more{Colors.RESET}")
+            Display._box(vuln_lines, color=Colors.RED, style="rounded")
+            print()
+        
+        # Show ports/services found
+        if open_ports:
+            port_lines = [f"{Colors.BOLD}🌐 OPEN PORTS / SERVICES{Colors.RESET}", ""]
+            for port_info in open_ports[:8]:
+                if isinstance(port_info, dict):
+                    port = port_info.get("port", "?")
+                    service = port_info.get("service", "unknown")
+                    port_lines.append(f"  {Colors.GREEN}●{Colors.RESET} Port {Colors.BOLD}{port}{Colors.RESET} → {service}")
+                else:
+                    port_lines.append(f"  {Colors.GREEN}●{Colors.RESET} {port_info}")
+            if len(open_ports) > 8:
+                port_lines.append(f"  {Colors.DIM}⋯ and {len(open_ports) - 8} more{Colors.RESET}")
+            Display._box(port_lines, color=Colors.GREEN, style="rounded")
+            print()
+        
+        # Show commands executed
+        stats = self.executor.get_stats()
+        elapsed = str(datetime.now() - self.start_time).split('.')[0]
+        stat_lines = [
+            f"{Colors.BOLD}📈 SCAN STATS{Colors.RESET}",
+            f"",
+            f"  💻 Commands executed  {Colors.BOLD}{stats['total_commands']}{Colors.RESET}",
+            f"  ❌ Commands failed    {Colors.BOLD}{stats['failed_commands']}{Colors.RESET}",
+            f"  🧠 AI iterations     {Colors.BOLD}{self.iteration}{Colors.RESET}",
+            f"  ⏱  Time elapsed      {Colors.BOLD}{elapsed}{Colors.RESET}",
+        ]
+        Display._box(stat_lines, color=Colors.STEEL_BLUE, style="rounded")
+        print()
+        
+        # Interactive loop - keep asking until user wants to exit or continue
+        while True:
+            Display._box([
+                f"{Colors.BOLD}🤔 WHAT WOULD YOU LIKE TO DO?{Colors.RESET}",
+                f"",
+                f"  {Colors.YELLOW}[1]{Colors.RESET} ✅ Generate final report & exit",
+                f"  {Colors.GREEN}[2]{Colors.RESET} 🔄 Continue scanning (new instructions)",
+                f"  {Colors.CYAN}[3]{Colors.RESET} ❓ Ask AI a question about findings",
+            ], color=Colors.YELLOW, style="rounded")
+            print()
+            
+            try:
+                choice = input(f"  {Colors.YELLOW}  ▸ Your choice [1/2/3]: {Colors.RESET}").strip()
+                
+                if choice == "2":
+                    # Continue with new instructions
+                    print()
+                    new_goal = input(f"  {Colors.GREEN}  📝 What should AI do next? {Colors.RESET}").strip()
+                    if new_goal:
+                        self.goal = f"{self.goal}\n\nADDITIONAL USER REQUEST: {new_goal}"
+                        self.kb.add_note(f"User requested: {new_goal}")
+                        Display.success(f"Got it! AI will now: {new_goal[:80]}...")
+                        return True  # Continue scanning
+                    else:
+                        Display.info("No instructions given. Try again or choose [1] to exit.")
+                        continue
+                        
+                elif choice == "3":
+                    # Ask AI a question
+                    print()
+                    question = input(f"  {Colors.CYAN}  ❓ Your question: {Colors.RESET}").strip()
+                    if question:
+                        Display.thinking("AI is thinking...")
+                        try:
+                            # Build context for question
+                            findings_summary = [v.get('title', v.get('description', ''))[:50] for v in vulnerabilities[:5]]
+                            ports_summary = str(open_ports[:5]) if open_ports else "None found"
+                            
+                            answer_prompt = f"""
+Based on the security scan of {self.target}, answer this question:
+
+QUESTION: {question}
+
+SCAN DATA:
+- Vulnerabilities found: {total_vulns}
+- Open ports: {ports_summary}
+- Key findings: {findings_summary}
+
+Give a direct, helpful answer. If the question asks for more scanning, suggest specific commands.
+"""
+                            if self.ai.provider == "groq":
+                                answer = self.ai._call_groq(answer_prompt)
+                            else:
+                                answer = self.ai._call_gemini(answer_prompt)
+                            
+                            print()
+                            # Word wrap the answer into box lines
+                            answer_lines = [f"{Colors.BOLD}🤖 AI ANSWER{Colors.RESET}", ""]
+                            for line in answer.split('\n'):
+                                if len(line) > 62:
+                                    words = line.split()
+                                    buf = ""
+                                    for word in words:
+                                        if len(buf) + len(word) + 1 > 62:
+                                            answer_lines.append(f"{Colors.DIM}{buf}{Colors.RESET}")
+                                            buf = word
+                                        else:
+                                            buf += " " + word if buf else word
+                                    if buf:
+                                        answer_lines.append(f"{Colors.DIM}{buf}{Colors.RESET}")
+                                else:
+                                    answer_lines.append(f"{Colors.DIM}{line}{Colors.RESET}")
+                            Display._box(answer_lines, color=Colors.CYAN, style="rounded", title="─── AI ───")
+                            print()
+                            
+                            # Wait for user to read
+                            input(f"  {Colors.GRAY}  ▸ Press Enter to continue...{Colors.RESET}")
+                            print()
+                            
+                        except Exception as e:
+                            Display.error(f"AI error: {e}")
+                            print()
+                    
+                    # Loop back to menu
+                    continue
+                
+                elif choice == "1" or choice == "":
+                    # Generate report
+                    return False
+                
+                else:
+                    Display.warning("Invalid choice. Enter 1, 2, or 3.")
+                    continue
+                    
+            except (EOFError, KeyboardInterrupt):
+                print()
+                Display.info("Generating report...")
+                return False
+
+    def run(self):
+        """
+        Run the autonomous scanning loop.
+        This is the main engine - AI thinks, executes, learns, repeats.
+        """
+        Display.section("STARTING AUTONOMOUS SCAN")
+        Display.phase(self.current_phase)
+
+        # Send scan start notification
+        self.notifier.notify_scan_start(self.target, self.ai.model_name, self.profile_name)
+
+        last_command = ""
+        last_output = ""
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+        failed_tools = set()      # Track tools that are not installed
+        recent_commands = []       # Track recent commands to detect loops
+        command_types = []         # Track 'script' or 'tool' pattern for alternation
+        recent_outputs = []        # Track recent output hashes to detect stuck loops
+        proxy_fail_count = 0         # Track consecutive proxy failures for auto-disable
+
+        def _is_script(cmd):
+            """Detect if a command is a custom script vs basic tool command."""
+            cmd_stripped = cmd.strip()
+            # Multi-command pipelines with logic = script
+            if cmd_stripped.startswith("bash -c ") or cmd_stripped.startswith("bash -c'"):
+                return True
+            if cmd_stripped.startswith("python3 -c ") or cmd_stripped.startswith('python3 -c"'):
+                return True
+            if cmd_stripped.startswith("python -c "):
+                return True
+            # Commands with for/while loops = script
+            if ' for ' in cmd_stripped and ' do ' in cmd_stripped and ' done' in cmd_stripped:
+                return True
+            # Pipe chains with 3+ stages = script  
+            if cmd_stripped.count(' | ') >= 2:
+                return True
+            # Commands with $( ) subshells = script
+            if '$(' in cmd_stripped and ')' in cmd_stripped and ' | ' in cmd_stripped:
+                return True
+            return False
+
+        while self.running and self.iteration < self.max_iterations:
+            self.iteration += 1
+            self.phase_iteration += 1
+
+            # Show progress
+            elapsed = str(datetime.now() - self.start_time).split('.')[0]
+            Display.stats(
+                self.ai.get_stats(),
+                self.executor.get_stats(),
+                self.kb.get_vulnerability_count(),
+                elapsed
+            )
+
+            # ═══════════════════════════════════════
+            # STEP 1: AI THINKS
+            # ═══════════════════════════════════════
+            Display.thinking(f"AI is thinking... (iteration {self.iteration}/{self.max_iterations})")
+            
+            try:
+                decision = self.ai.think(
+                    target=self.target,
+                    goal=self.goal,
+                    knowledge_base=self.kb.get_context(),
+                    last_command=last_command,
+                    last_output=last_output,
+                    phase=self.current_phase
+                )
+            except Exception as e:
+                Display.error(f"AI thinking failed: {e}")
+                consecutive_errors += 1
+                if consecutive_errors >= max_consecutive_errors:
+                    Display.error("Too many consecutive errors. Stopping.")
+                    break
+                time.sleep(5)
+                continue
+
+            consecutive_errors = 0  # Reset on success
+
+            # Show AI's reasoning with modern card
+            reasoning = decision.get("reasoning", "No reasoning provided")
+            expected_out = decision.get("expected_outcome", "")
+            script_info_preview = ""
+            if decision.get("script"):
+                stype = decision.get("script_type", "python")
+                slines = decision["script"].count('\n') + 1
+                script_info_preview = f"{stype} script, ~{slines} lines"
+            Display.iteration_card(self.iteration, self.max_iterations, reasoning, expected_out, script_info_preview)
+
+            action = decision.get("action", "COMMAND")
+
+            # Normalize common AI typos and custom action names
+            action_upper = action.upper().strip()
+            if action_upper in ("GOAL_ACHIVED", "GOAL_ACHEIVED", "GOAL_ACHIEVED", "GOALACHIEVED"):
+                action = "GOAL_ACHIEVED"
+            elif action_upper in ("SWITCH_PHASE", "SWITCHPHASE", "PHASE_SWITCH"):
+                action = "SWITCH_PHASE"
+            elif action_upper in ("SCRIPT", "RUN_SCRIPT", "WRITE_SCRIPT", "EXECUTE_SCRIPT", "BASH_SCRIPT", "PYTHON_SCRIPT"):
+                action = "SCRIPT"
+            elif action_upper not in ("COMMAND", "GOAL_ACHIEVED", "SWITCH_PHASE", "SCRIPT", "ANALYZE"):
+                # AI invented a custom action (DNS_RESOLUTION, PORT_SCAN, etc.)
+                # If it has a 'script' field, treat as SCRIPT
+                if decision.get("script"):
+                    Display.warning(f"Unknown action '{action}' with script field → treating as SCRIPT")
+                    action = "SCRIPT"
+                # If it has a command field, treat it as COMMAND
+                elif decision.get("command"):
+                    Display.warning(f"Unknown action '{action}' → treating as COMMAND")
+                    action = "COMMAND"
+                else:
+                    Display.warning(f"Unknown action '{action}' with no command/script, asking AI to retry")
+                    last_output = f"ERROR: Invalid action '{action}'. Use COMMAND (with 'command' field) or SCRIPT (with 'script' and 'script_type' fields), or GOAL_ACHIEVED, or SWITCH_PHASE."
+                    continue
+
+            # ═══════════════════════════════════════
+            # STEP 2: HANDLE AI DECISION
+            # ═══════════════════════════════════════
+
+            # --- GOAL ACHIEVED ---
+            if action == "GOAL_ACHIEVED":
+                Display.success("🎯 AI reports GOAL ACHIEVED!")
+                summary = decision.get("findings_summary", "")
+                if summary:
+                    Display.info(f"Summary: {summary[:200]}")
+                self.kb.add_note(f"Goal achieved: {summary[:300]}")
+                
+                # === INTERACTIVE REVIEW ===
+                should_continue = self._interactive_review()
+                if should_continue:
+                    # User wants to continue - reset and keep going
+                    last_output = "User requested additional work. Continue scanning based on new instructions."
+                    continue
+                else:
+                    # User is satisfied - generate report
+                    break
+
+            # --- SWITCH PHASE ---
+            elif action == "SWITCH_PHASE":
+                new_phase = decision.get("new_phase", "scan")
+                Display.info(f"Switching from {self.current_phase} → {new_phase}")
+                self.current_phase = new_phase
+                self.kb.update_phase(new_phase)
+                self.phase_iteration = 0
+                self.executor.invalidate_cache()  # Fresh results for new phase
+                recent_commands.clear()
+                Display.phase(new_phase)
+                last_output = f"Phase switched to {new_phase}. All caches cleared."
+                continue
+
+            # --- EXECUTE SCRIPT (file-based) ---
+            elif action == "SCRIPT":
+                script_content = decision.get("script", "")
+                script_type = decision.get("script_type", "bash").lower()
+                
+                if not script_content:
+                    Display.warning("AI returned empty script, asking to rethink...")
+                    last_output = "ERROR: Empty script. Use action SCRIPT with 'script' field containing the code and 'script_type' as 'bash' or 'python'."
+                    continue
+                
+                # Replace target placeholder
+                script_content = script_content.replace("TARGET_DOMAIN", self.target)
+                script_content = script_content.replace("TARGET_HERE", self.target)
+                
+                # Determine script path and execution command
+                # Use unique filename per iteration to avoid stale cache hits
+                if script_type == "python":
+                    script_path = os.path.join(self.executor.working_dir, f"zenith_script_{self.iteration}.py")
+                    # Ensure zenith modules are importable from script
+                    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                    sys_path_inject = f"import sys; sys.path.insert(0, {repr(project_root)})\n"
+                    if "from zenith." in script_content or "import zenith" in script_content:
+                        script_content = sys_path_inject + script_content
+                    run_cmd = f"python3 {script_path}"
+                else:
+                    script_path = os.path.join(self.executor.working_dir, f"zenith_script_{self.iteration}.sh")
+                    if not script_content.startswith("#!"):
+                        script_content = "#!/bin/bash\n" + script_content
+                    run_cmd = f"bash {script_path}"
+                
+                # Write script to file
+                try:
+                    with open(script_path, 'w', newline='\n') as f:
+                        f.write(script_content)
+                    os.chmod(script_path, 0o755)
+                    line_count = script_content.count('\n') + 1
+                    Display.info(f"\U0001f4dd Script written: {script_path} ({line_count} lines, {script_type})")
+                except Exception as e:
+                    Display.error(f"Failed to write script: {e}")
+                    last_output = f"ERROR: Could not write script file: {e}. Use COMMAND action instead."
+                    continue
+                
+                # Dedup check using script content hash
+                import hashlib
+                script_hash = hashlib.md5(script_content.encode()).hexdigest()[:12]
+                if script_hash in recent_commands[-5:]:
+                    Display.warning("Duplicate script detected - forcing different approach")
+                    last_output = "ERROR: You already ran this exact script. Write a DIFFERENT script."
+                    continue
+                recent_commands.append(script_hash)
+                if len(recent_commands) > 20:
+                    recent_commands = recent_commands[-20:]
+                
+                # Wrap with proxy if enabled
+                if self.proxy.enabled:
+                    run_cmd = self.proxy.wrap_command(run_cmd)
+                
+                # Snapshot vuln count BEFORE execution (to detect new findings)
+                old_vuln_count = sum(self.kb.get_vulnerability_count().values())
+                
+                # Execute the script
+                Display.command(f"{run_cmd} [\U0001f4c4 {script_type} script, {line_count} lines]")
+                result = self.executor.execute(run_cmd)
+                
+                # Show output
+                combined_output = result["output"]
+                if result["error"] and not result["success"]:
+                    combined_output += f"\nSTDERR: {result['error']}"
+                
+                Display.output(combined_output)
+                
+                if result["success"]:
+                    Display.success(f"Script completed in {result['duration']}s")
+                else:
+                    Display.warning(f"Script failed (code: {result['return_code']}) in {result['duration']}s")
+                
+                # Log to KB
+                self.kb.log_command(f"[SCRIPT:{script_type}] {run_cmd}", combined_output, result["success"])
+                
+                # === PROXY HEALTH CHECK ===
+                if self.proxy.enabled:
+                    combined_lower = combined_output.lower()
+                    if not result["success"] and ("connection refused" in combined_lower or "socks" in combined_lower or "proxy" in combined_lower):
+                        proxy_fail_count += 1
+                        if proxy_fail_count >= 3:
+                            Display.warning(f"🔌 Proxy failed {proxy_fail_count}x in a row! Auto-disabling proxy for DIRECT connections.")
+                            self.proxy.enabled = False
+                            self.proxy_auto_disabled = True
+                            proxy_fail_count = 0
+                            last_output = (f"⚠️ SYSTEM: Proxy/Tor was DOWN (Connection refused {proxy_fail_count}x). "
+                                          f"Proxy has been AUTO-DISABLED. All commands now run with DIRECT connections. "
+                                          f"Retry your approach - it should work now without proxy.")
+                            continue
+                    elif result["success"]:
+                        proxy_fail_count = max(0, proxy_fail_count - 1)
+                elif self.proxy_auto_disabled and not result["success"]:
+                    # Even without proxy, if connection still refused, it's the target
+                    combined_lower = combined_output.lower()
+                    if "connection refused" in combined_lower:
+                        pass  # Executor already adds TARGET IS BLOCKING message
+
+                # Track as 'script' type for alternation
+                command_types.append('script')
+                if len(command_types) > 10:
+                    command_types = command_types[-10:]
+                
+                # Check for new vulnerabilities (old_vuln_count captured before execution above)
+                new_vuln_count = sum(self.kb.get_vulnerability_count().values())
+                if new_vuln_count > old_vuln_count:
+                    diff = new_vuln_count - old_vuln_count
+                    Display.success(f"\U0001f513 {diff} new vulnerability(ies) discovered!")
+                    for vuln in self.kb.data["vulnerabilities"][-diff:]:
+                        Display.vulnerability(vuln["title"], vuln["severity"], vuln.get("description", ""))
+                        self.notifier.notify_vulnerability(vuln["title"], vuln["severity"], vuln.get("description", ""), self.target)
+                
+                # Detect tools that failed inside the script
+                import re as _re
+                not_found_in_script = _re.findall(r'([a-zA-Z0-9_.-]+):\s*(?:command )?not found', combined_output.lower())
+                for tool_name in not_found_in_script:
+                    if tool_name not in ['bash', 'sh', 'python3', 'python'] and tool_name not in failed_tools:
+                        failed_tools.add(tool_name)
+                        Display.warning(f"Tool '{tool_name}' not installed (detected in script output)")
+                
+                # Update for next iteration
+                last_command = f"[{script_type} script] {decision.get('reasoning', '')[:80]}"
+                last_output = combined_output[:3000]
+                
+                # Stuck-loop detection: if the same output hash repeats 3+ times, force phase switch
+                import hashlib as _hl
+                out_hash = _hl.md5(combined_output[:500].encode()).hexdigest()[:8]
+                recent_outputs.append(out_hash)
+                if len(recent_outputs) > 10:
+                    recent_outputs = recent_outputs[-10:]
+                if recent_outputs.count(out_hash) >= 3:
+                    Display.warning("⚠ Stuck loop detected (same output 3x). Forcing phase switch...")
+                    self.executor.invalidate_cache()
+                    recent_commands.clear()
+                    recent_outputs.clear()
+                    if self.current_phase == "recon":
+                        self.current_phase = "scan"
+                    elif self.current_phase == "scan":
+                        self.current_phase = "exploit"
+                    else:
+                        self.current_phase = "report"
+                    self.kb.update_phase(self.current_phase)
+                    self.phase_iteration = 0
+                    Display.phase(self.current_phase)
+                    last_output = f"SYSTEM: Stuck loop detected. Auto-switched to phase '{self.current_phase}'. Use a COMPLETELY DIFFERENT approach."
+
+            # --- EXECUTE COMMAND ---
+            elif action == "COMMAND":
+                command = decision.get("command", "")
+                
+                if not command:
+                    Display.warning("AI returned empty command, asking to rethink...")
+                    last_output = "ERROR: Empty command received. Please provide a valid command."
+                    continue
+
+                # Validate command
+                is_valid, cleaned_cmd, warnings = self.validator.validate(command)
+                for w in warnings:
+                    Display.warning(f"Validator: {w}")
+                
+                if not is_valid:
+                    Display.error(f"Command rejected by validator")
+                    last_output = f"ERROR: Command rejected - {'; '.join(warnings)}. Try a different approach."
+                    continue
+                
+                command = cleaned_cmd
+                
+                # Strip AI-added proxy wrappers (proxy.wrap_command handles this)
+                # AI sometimes adds proxychains despite being told not to
+                for prefix in ["proxychains4 -q ", "proxychains4 ", "proxychains -q ", "proxychains ", "torsocks "]:
+                    while command.startswith(prefix):
+                        command = command[len(prefix):]
+                
+                # Check if command uses a tool that we know is not installed
+                base_tool = command.split()[0] if command.split() else ""
+                if base_tool in failed_tools:
+                    Display.warning(f"Tool '{base_tool}' is not installed - skipping")
+                    last_output = f"ERROR: Tool '{base_tool}' is NOT installed on this system. Use a different tool. Available: nmap, nikto, sqlmap, nuclei, ffuf, gobuster, curl, dig, whois, host, assetfinder, hydra, searchsploit, wpscan, sslscan"
+                    continue
+                
+                # Detect command loops (same command repeated)
+                cmd_signature = command.strip().lower()
+                if cmd_signature in recent_commands[-3:]:
+                    Display.warning(f"Duplicate command detected - forcing different approach")
+                    last_output = f"ERROR: You already ran this exact command. It failed before. Use a COMPLETELY DIFFERENT tool or approach."
+                    continue
+                recent_commands.append(cmd_signature)
+                if len(recent_commands) > 20:
+                    recent_commands = recent_commands[-20:]
+                
+                # === SCRIPT/TOOL ALTERNATION ===
+                # If last 2 commands were both basic tools, force a script
+                is_current_script = _is_script(command)
+                if len(command_types) >= 2 and command_types[-1] == 'tool' and command_types[-2] == 'tool' and not is_current_script:
+                    Display.warning(f"2 basic tools in a row \u2192 forcing script")
+                    last_output = (f"SYSTEM RULE: You used 2 basic tool commands in a row. "
+                                   f"You MUST now use action SCRIPT to write a bash or python script file. "
+                                   f"Format: {{\"action\":\"SCRIPT\",\"script_type\":\"bash\",\"script\":\"#!/bin/bash\\nYOUR CODE HERE\",\"reasoning\":\"why\"}} "
+                                   f"Scripts are saved to a file and executed - no quoting issues! "
+                                   f"Last output was: {last_output[:400] if last_output else 'None'}")
+                    continue
+                
+                # Wrap with proxy if enabled
+                if self.proxy.enabled:
+                    command = self.proxy.wrap_command(command)
+
+                # Snapshot vuln count BEFORE execution (to detect new findings)
+                old_vuln_count = sum(self.kb.get_vulnerability_count().values())
+
+                # Execute the command
+                Display.command(command)
+                result = self.executor.execute(command)
+
+                # Show output
+                combined_output = result["output"]
+                if result["error"] and not result["success"]:
+                    combined_output += f"\nSTDERR: {result['error']}"
+                
+                Display.output(combined_output)
+
+                # Show execution info
+                if result["success"]:
+                    Display.success(f"Command completed in {result['duration']}s")
+                else:
+                    Display.warning(f"Command failed (code: {result['return_code']}) in {result['duration']}s")
+
+                # Log to KB
+                self.kb.log_command(command, combined_output, result["success"])
+                
+                # === PROXY HEALTH CHECK ===
+                if self.proxy.enabled:
+                    combined_lower = combined_output.lower()
+                    if not result["success"] and ("connection refused" in combined_lower or "socks" in combined_lower or "proxy" in combined_lower):
+                        proxy_fail_count += 1
+                        if proxy_fail_count >= 3:
+                            Display.warning(f"🔌 Proxy failed {proxy_fail_count}x in a row! Auto-disabling proxy for DIRECT connections.")
+                            self.proxy.enabled = False
+                            self.proxy_auto_disabled = True
+                            proxy_fail_count = 0
+                            last_output = (f"⚠️ SYSTEM: Proxy/Tor was DOWN (Connection refused). "
+                                          f"Proxy has been AUTO-DISABLED. All commands now run with DIRECT connections. "
+                                          f"Retry your approach - it should work now without proxy.")
+                            continue
+                    elif result["success"]:
+                        proxy_fail_count = max(0, proxy_fail_count - 1)
+
+                # Track command type for alternation
+                command_types.append('script' if _is_script(command) else 'tool')
+                if len(command_types) > 10:
+                    command_types = command_types[-10:]
+
+                # Check for new vulnerabilities (old_vuln_count captured before execution above)
+                new_vuln_count = sum(self.kb.get_vulnerability_count().values())
+                
+                if new_vuln_count > old_vuln_count:
+                    diff = new_vuln_count - old_vuln_count
+                    Display.success(f"🔓 {diff} new vulnerability(ies) discovered!")
+                    for vuln in self.kb.data["vulnerabilities"][-diff:]:
+                        Display.vulnerability(
+                            vuln["title"],
+                            vuln["severity"],
+                            vuln.get("description", "")
+                        )
+                        # Send notification
+                        self.notifier.notify_vulnerability(
+                            vuln["title"], vuln["severity"],
+                            vuln.get("description", ""), self.target
+                        )
+
+                # Track tools that are not installed
+                if result["return_code"] == 127 or "not found" in combined_output.lower():
+                    tool = command.split()[0] if command.split() else ""
+                    # Strip proxy prefix to get actual tool name
+                    for px in ["proxychains4", "proxychains", "torsocks"]:
+                        if tool == px:
+                            parts = command.split()
+                            # Skip flags like -q
+                            idx = 1
+                            while idx < len(parts) and parts[idx].startswith("-"):
+                                idx += 1
+                            tool = parts[idx] if idx < len(parts) else tool
+                            break
+                    if tool and tool not in ["proxychains4", "proxychains", "torsocks", "bash", "sh"]:
+                        failed_tools.add(tool)
+                        Display.warning(f"Tool '{tool}' added to skip list (not installed)")
+
+                # Update for next iteration
+                last_command = command
+                last_output = combined_output[:3000]  # Limit for AI context
+
+            else:
+                Display.warning(f"Unknown action: {action}")
+                last_output = f"Unknown action '{action}'. Use COMMAND (with 'command'), SCRIPT (with 'script'+'script_type'), SWITCH_PHASE, or GOAL_ACHIEVED."
+
+            # Check if we should auto-switch phase
+            if self.phase_iteration >= self.MAX_PHASE_ITERATIONS:
+                current_idx = self.PHASES.index(self.current_phase) if self.current_phase in self.PHASES else 0
+                if current_idx < len(self.PHASES) - 1:
+                    next_phase = self.PHASES[current_idx + 1]
+                    Display.warning(f"Phase iteration limit reached. Auto-switching to {next_phase}")
+                    self.current_phase = next_phase
+                    self.kb.update_phase(next_phase)
+                    self.phase_iteration = 0
+                    Display.phase(next_phase)
+                else:
+                    Display.warning("All phases completed. Generating report.")
+                    break
+
+            # Save session state periodically (every 5 iterations)
+            if self.iteration % 5 == 0:
+                self.session_mgr.save_state(
+                    self.session_id,
+                    current_iteration=self.iteration,
+                    current_phase=self.current_phase,
+                    phase_iteration=self.phase_iteration,
+                    ai_calls=self.ai.get_stats()["total_calls"],
+                    commands_executed=self.executor.get_stats()["total_commands"],
+                    commands_failed=self.executor.get_stats()["failed_commands"],
+                    vulnerabilities_found=sum(self.kb.get_vulnerability_count().values()),
+                    working_dir=self.working_dir,
+                    knowledge_base_file=self.kb.db_file,
+                )
+
+            # Small delay to avoid overwhelming the API
+            time.sleep(1)
+
+        # ═══════════════════════════════════════
+        # STEP 3: GENERATE FINAL REPORT
+        # ═══════════════════════════════════════
+        self._generate_report()
+
+    def _generate_report(self):
+        """Generate the final security report."""
+        Display.section("GENERATING FINAL REPORT")
+        
+        elapsed = str(datetime.now() - self.start_time).split('.')[0]
+        Display.info(f"Total scan time: {elapsed}")
+        Display.info(f"Total iterations: {self.iteration}")
+        Display.info(f"Total commands executed: {self.executor.get_stats()['total_commands']}")
+
+        # Ask AI to analyze all findings
+        Display.thinking("AI is analyzing all findings and generating report...")
+        
+        try:
+            ai_report = self.ai.analyze_findings(
+                self.kb.get_full_data(),
+                self.target,
+                self.goal
+            )
+        except Exception as e:
+            Display.error(f"AI report generation failed: {e}")
+            ai_report = {
+                "executive_summary": "Auto-analysis failed. See raw data in KB export.",
+                "risk_rating": "UNKNOWN"
+            }
+
+        # Save reports
+        kb_report_file = self.kb.export_report()
+        Display.success(f"Knowledge Base report saved: {kb_report_file}")
+
+        # Save AI analysis report
+        ai_report_file = kb_report_file.replace("_report.json", "_ai_analysis.json")
+        try:
+            with open(ai_report_file, 'w') as f:
+                json.dump(ai_report, f, indent=2, default=str)
+            Display.success(f"AI analysis report saved: {ai_report_file}")
+        except Exception as e:
+            Display.error(f"Failed to save AI report: {e}")
+
+        # Generate HTML Report
+        try:
+            scan_info = {
+                "target": self.target,
+                "model": self.ai.model_name,
+                "duration": elapsed,
+                "iterations": self.iteration,
+                "commands_executed": self.executor.get_stats()["total_commands"],
+                "working_dir": self.working_dir,
+                "profile": self.profile_name,
+            }
+            html_file = self.html_reporter.generate(
+                report_data=ai_report,
+                kb_data=self.kb.get_full_data(),
+                scan_info=scan_info
+            )
+            Display.success(f"📄 HTML report generated: {html_file}")
+        except Exception as e:
+            Display.error(f"HTML report generation failed: {e}")
+
+        # Show final report
+        Display.final_report(ai_report, kb_report_file)
+
+        # Print vulnerability summary
+        vuln_counts = self.kb.get_vulnerability_count()
+        total_vulns = sum(vuln_counts.values())
+        
+        if total_vulns > 0:
+            Display.subsection("VULNERABILITY SUMMARY")
+            for vuln in self.kb.data["vulnerabilities"]:
+                Display.vulnerability(
+                    vuln["title"],
+                    vuln["severity"],
+                    vuln.get("description", "")
+                )
+        else:
+            Display.info("No vulnerabilities were automatically detected.")
+            Display.info("Check the full report for manual analysis results from AI.")
+
+        # Final stats
+        Display.subsection("FINAL STATISTICS")
+        Display.info(f"Scan Duration: {elapsed}")
+        Display.info(f"AI Model: {self.ai.model_name}")
+        Display.info(f"AI Calls: {self.ai.get_stats()['total_calls']}")
+        Display.info(f"Commands Executed: {self.executor.get_stats()['total_commands']}")
+        Display.info(f"Commands Failed: {self.executor.get_stats()['failed_commands']}")
+        Display.info(f"Vulnerabilities Found: {total_vulns}")
+        
+        for sev, count in vuln_counts.items():
+            if count > 0:
+                Display.info(f"  {sev}: {count}")
+        
+        print(f"\n  {Colors.GREEN}{Colors.BOLD}Scan complete! Check reports for full details.{Colors.RESET}\n")
+
+        # Show report locations
+        Display.subsection("📄 REPORT LOCATIONS")
+        Display.info(f"Working Directory: {self.working_dir}")
+        Display.info(f"KB Report: {kb_report_file}")
+        Display.info(f"AI Analysis: {ai_report_file}")
+        if 'html_file' in locals():
+            Display.info(f"HTML Report: {html_file}")
+            # Auto-open on Windows
+            if sys.platform == "win32":
+                try:
+                    import webbrowser
+                    webbrowser.open(f"file:///{html_file}")
+                    Display.success("💡 HTML report opened in browser!")
+                except:
+                    pass
+
+        # Mark session complete
+        self.session_mgr.mark_completed(self.session_id)
+        self.session_mgr.save_state(
+            self.session_id,
+            current_iteration=self.iteration,
+            current_phase="completed",
+            ai_calls=self.ai.get_stats()["total_calls"],
+            commands_executed=self.executor.get_stats()["total_commands"],
+            vulnerabilities_found=total_vulns,
+            status="completed",
+        )
+
+        # Send completion notification
+        risk = ai_report.get("risk_rating", "UNKNOWN") if isinstance(ai_report, dict) else "UNKNOWN"
+        self.notifier.notify_scan_end(
+            self.target, elapsed, vuln_counts,
+            risk_rating=risk
+        )
+
+        # Send report FILES to Telegram (the actual documents!)
+        report_files = {}
+        if 'html_file' in locals() and html_file:
+            report_files["html"] = html_file
+        if kb_report_file:
+            report_files["json"] = kb_report_file
+        if ai_report_file and os.path.exists(ai_report_file):
+            report_files["ai_analysis"] = ai_report_file
+        
+        if report_files:
+            self.notifier.notify_report(
+                target=self.target,
+                report_files=report_files,
+                duration=elapsed,
+                vuln_counts=vuln_counts,
+                risk_rating=risk
+            )
+
+    def stop(self):
+        """Stop the scanner."""
+        self.running = False
+        Display.warning("Scanner stopping...")

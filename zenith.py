@@ -336,11 +336,14 @@ def interactive_setup():
         env_var = "GEMINI_API_KEY"
         key_url = "https://aistudio.google.com/apikey"
         key_prefix = "AIza"
+        free_key = None
     elif provider_choice == "3":
         provider = "custom"
         env_var = "OPENAI_API_KEY"
         key_url = "https://api.apinex.bond / https://api.deepseek.com"
         key_prefix = "sk-"
+        # Free APInex API key (works with free/gemini-3.8-flash model)
+        free_key = "sk-apxe124c03b3a2f22bc1215f9352a14ee01502cdb5baa57b5b"
         print()
         base_url_input = input(f"  {Colors.YELLOW}  ▸ Custom Base URL [https://api.apinex.bond/v1]: {Colors.RESET}").strip()
         base_url = base_url_input if base_url_input else "https://api.apinex.bond/v1"
@@ -349,6 +352,7 @@ def interactive_setup():
         env_var = "GROQ_API_KEY"
         key_url = "https://console.groq.com/keys"
         key_prefix = "gsk_"
+        free_key = None
     
     print()
     Display._box([
@@ -368,7 +372,12 @@ def interactive_setup():
             api_key = ""
 
     if not api_key:
-        api_key = input(f"\n  {Colors.YELLOW}  Enter {provider.upper()} API Key: {Colors.RESET}").strip()
+        # Auto-use free APInex key if available
+        if provider == "custom" and free_key and "apinex" in str(base_url).lower():
+            print(f"  {Colors.GREEN}  [✓] Using built-in FREE APInex API key{Colors.RESET}")
+            api_key = free_key
+        else:
+            api_key = input(f"\n  {Colors.YELLOW}  Enter {provider.upper()} API Key: {Colors.RESET}").strip()
 
     if not api_key:
         print(f"\n  {Colors.RED}  [✗] API key is required!{Colors.RESET}")

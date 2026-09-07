@@ -225,6 +225,10 @@ class TerminalExecutor:
         
         return command
 
+    def run(self, command, timeout=None):
+        """Alias for execute() - used by multi-agent pipeline agents."""
+        return self.execute(command, timeout=timeout)
+
     def execute(self, command, timeout=None):
         """
         Execute a Linux command and return the output.

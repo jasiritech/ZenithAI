@@ -824,13 +824,24 @@ Use these for deep vulnerability testing - they are more thorough than manual sc
             else:
                 raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
         except Exception as req_err:
-            # urllib fallback - PySocks global monkey-patch handles SOCKS routing
+            # urllib fallback - must clear SOCKS proxy env vars because
+            # urllib tries to use them as HTTP CONNECT proxy which fails with Tor
             import urllib.request
             import ssl
+            
+            # Temporarily clear proxy env vars for urllib
+            saved_proxy_vars = {}
+            for var in ("ALL_PROXY", "all_proxy", "HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"):
+                if var in os.environ:
+                    saved_proxy_vars[var] = os.environ.pop(var)
+            
             ctx = ssl._create_unverified_context()
+            # Use a fresh opener with no proxy handler
+            no_proxy_handler = urllib.request.ProxyHandler({})
+            opener = urllib.request.build_opener(no_proxy_handler, urllib.request.HTTPSHandler(context=ctx))
             req = urllib.request.Request(endpoint, data=data_bytes, headers=headers, method="POST")
             try:
-                with urllib.request.urlopen(req, context=ctx, timeout=90) as response:
+                with opener.open(req, timeout=90) as response:
                     res_body = response.read().decode("utf-8", errors="ignore")
                     res_data = json.loads(res_body)
                     content = res_data["choices"][0]["message"]["content"]
@@ -838,6 +849,9 @@ Use these for deep vulnerability testing - they are more thorough than manual sc
                     return content.strip()
             except Exception as url_err:
                 raise RuntimeError(f"Custom AI error: {req_err} | urllib: {url_err}")
+            finally:
+                # Restore proxy env vars
+                os.environ.update(saved_proxy_vars)
 
     def query(self, prompt, system_prompt=None, max_tokens=2048):
         """Direct query to the AI (used by specialized agents like Planner, Reporter, Web)."""

@@ -921,10 +921,23 @@ def main():
             from zenith.core.pipeline import AgentPipeline
 
             Display.section("INITIALIZING MULTI-AGENT SWARM")
+            
+            # Setup proxy BEFORE AI Brain so API calls can route through Tor
+            from zenith.core.proxy import ProxyManager
+            if proxy_config:
+                proxy_mgr = ProxyManager(proxy_config)
+            else:
+                proxy_mgr = ProxyManager.from_env()
+            if proxy_mgr.enabled:
+                ok, msg = proxy_mgr.install_global_proxy()
+                print(f"    [{'✓' if ok else '✗'}] Proxy: {msg}")
+            
             ai = AIBrain(api_key=api_key, model_choice=model, base_url=base_url, provider=provider)
+            proxy_env = proxy_mgr.get_env_vars() if proxy_mgr.enabled else None
             executor = TerminalExecutor(
                 working_dir=output_dir or os.path.join(tempfile.gettempdir(), f"zenith_workspace_{int(time.time())}"),
-                sudo_password=sudo_password
+                sudo_password=sudo_password,
+                proxy_env=proxy_env,
             )
             pipeline = AgentPipeline(
                 target=target,

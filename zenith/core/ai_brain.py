@@ -802,56 +802,46 @@ Use these for deep vulnerability testing - they are more thorough than manual sc
         # Build proxy config for requests library
         requests_proxies = None
         try:
-            from zenith.core.proxy import ProxyManager
-            pm = ProxyManager.auto_detect()
-            if pm.enabled:
-                requests_proxies = pm.get_requests_proxies()
+            # Use env vars first (set by scanner/pipeline proxy init)
+            socks_url = os.environ.get("ALL_PROXY") or os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+            if socks_url and "socks" in socks_url:
+                requests_proxies = {"http": socks_url, "https": socks_url}
+            else:
+                from zenith.core.proxy import ProxyManager
+                pm = ProxyManager.auto_detect()
+                if pm.enabled:
+                    requests_proxies = pm.get_requests_proxies()
         except Exception:
             pass
         
-        # Try requests first (with proxy support), fallback to urllib
-        try:
-            import requests
-            resp = requests.post(
-                endpoint, json=payload, headers=headers, timeout=90,
-                proxies=requests_proxies,
-            )
-            if resp.status_code == 200:
-                res_data = resp.json()
-                content = res_data["choices"][0]["message"]["content"]
-                self.chat_history.append({"role": "assistant", "content": content})
-                return content.strip()
-            else:
-                raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
-        except Exception as req_err:
-            # urllib fallback - must clear SOCKS proxy env vars because
-            # urllib tries to use them as HTTP CONNECT proxy which fails with Tor
-            import urllib.request
-            import ssl
-            
-            # Temporarily clear proxy env vars for urllib
-            saved_proxy_vars = {}
-            for var in ("ALL_PROXY", "all_proxy", "HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"):
-                if var in os.environ:
-                    saved_proxy_vars[var] = os.environ.pop(var)
-            
-            ctx = ssl._create_unverified_context()
-            # Use a fresh opener with no proxy handler
-            no_proxy_handler = urllib.request.ProxyHandler({})
-            opener = urllib.request.build_opener(no_proxy_handler, urllib.request.HTTPSHandler(context=ctx))
-            req = urllib.request.Request(endpoint, data=data_bytes, headers=headers, method="POST")
+        # Try requests with retries (Tor circuits can be unstable)
+        import requests as _requests
+        last_err = None
+        for attempt in range(3):
             try:
-                with opener.open(req, timeout=90) as response:
-                    res_body = response.read().decode("utf-8", errors="ignore")
-                    res_data = json.loads(res_body)
+                resp = _requests.post(
+                    endpoint, json=payload, headers=headers, timeout=90,
+                    proxies=requests_proxies,
+                )
+                if resp.status_code == 200:
+                    res_data = resp.json()
                     content = res_data["choices"][0]["message"]["content"]
                     self.chat_history.append({"role": "assistant", "content": content})
                     return content.strip()
-            except Exception as url_err:
-                raise RuntimeError(f"Custom AI error: {req_err} | urllib: {url_err}")
-            finally:
-                # Restore proxy env vars
-                os.environ.update(saved_proxy_vars)
+                else:
+                    last_err = RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+                    if resp.status_code in (401, 403, 404):
+                        raise last_err  # Don't retry auth/not-found errors
+            except (RuntimeError,) as e:
+                raise e
+            except Exception as e:
+                last_err = e
+                if attempt < 2:
+                    time.sleep(2 * (attempt + 1))  # Backoff: 2s, 4s
+                    continue
+        
+        if last_err:
+            raise RuntimeError(f"Custom AI failed after 3 retries: {last_err}")
 
     def query(self, prompt, system_prompt=None, max_tokens=2048):
         """Direct query to the AI (used by specialized agents like Planner, Reporter, Web)."""

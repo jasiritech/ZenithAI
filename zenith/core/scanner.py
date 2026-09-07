@@ -150,6 +150,11 @@ class ZenithScanner:
         Display.info("Initializing Knowledge Base...")
         self.kb = KnowledgeBase(target, save_dir=self.working_dir)
 
+        # Initialize Strategy Manager (persistent hacker brain)
+        from zenith.core.strategy import StrategyManager
+        self.strategy = StrategyManager(target)
+        Display.info("Strategy Manager initialized — persistent attack tracking active")
+
         # Initialize Command Validator
         Display.info("Initializing Command Validator...")
         self.validator = CommandValidator(target=target)
@@ -437,9 +442,17 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
             )
 
             # ═══════════════════════════════════════
-            # STEP 1: AI THINKS
+            # STEP 1: AI THINKS (with strategy awareness)
             # ═══════════════════════════════════════
-            Display.thinking(f"AI is thinking... (iteration {self.iteration}/{self.max_iterations})")
+            
+            # Check if we should escalate
+            if self.strategy.should_escalate():
+                level_info = self.strategy.escalate()
+                Display.warning(f"⚡ ESCALATING to Level {self.strategy.escalation_level}/7 — {level_info.get('name', 'Unknown')}")
+                Display.info(f"   Focus: {level_info.get('description', '')}")
+            
+            strategy_ctx = self.strategy.get_context_for_ai()
+            Display.thinking(f"AI is thinking... (iter {self.iteration}/{self.max_iterations} | Level {self.strategy.escalation_level} | Findings: {len(self.strategy.findings)})")
             
             try:
                 decision = self.ai.think(
@@ -448,7 +461,8 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                     knowledge_base=self.kb.get_context(),
                     last_command=last_command,
                     last_output=last_output,
-                    phase=self.current_phase
+                    phase=self.current_phase,
+                    strategy_context=strategy_ctx,
                 )
             except Exception as e:
                 Display.error(f"AI thinking failed: {e}")
@@ -646,8 +660,52 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                         Display.vulnerability(vuln["title"], vuln["severity"], vuln.get("description", ""))
                         self.notifier.notify_vulnerability(vuln["title"], vuln["severity"], vuln.get("description", ""), self.target)
                 
-                # Detect tools that failed inside the script
+                # ═══════════════════════════════════════
+                # STRATEGY TRACKING — Parse output for findings/surfaces
+                # ═══════════════════════════════════════
                 import re as _re
+                new_surfaces = []
+                new_findings = []
+                new_info = []
+                blocked_by = None
+                
+                # Parse ZENITH_* markers from script output
+                for line in combined_output.split('\n'):
+                    if 'ZENITH_FINDING:' in line:
+                        parts = dict(p.split('=', 1) for p in line.split('ZENITH_FINDING:')[1].strip().split(' ') if '=' in p)
+                        new_findings.append(parts)
+                    elif 'ZENITH_SURFACE:' in line:
+                        parts = dict(p.split('=', 1) for p in line.split('ZENITH_SURFACE:')[1].strip().split(' ') if '=' in p)
+                        parts['key'] = f"{parts.get('type','?')}:{parts.get('value','?')}"
+                        new_surfaces.append(parts)
+                    elif 'ZENITH_INFO:' in line:
+                        parts = dict(p.split('=', 1) for p in line.split('ZENITH_INFO:')[1].strip().split(' ') if '=' in p)
+                        new_info.append(parts)
+                    elif 'ZENITH_BLOCKED:' in line:
+                        parts = dict(p.split('=', 1) for p in line.split('ZENITH_BLOCKED:')[1].strip().split(' ') if '=' in p)
+                        blocked_by = parts.get('by', 'unknown')
+                
+                found_something = bool(new_findings or new_surfaces or new_info or (new_vuln_count > old_vuln_count))
+                approach_name = decision.get('approach_name', decision.get('reasoning', '')[:50])
+                approach_cat = decision.get('approach_category', self.current_phase)
+                
+                self.strategy.record_attempt(
+                    approach=approach_name,
+                    category=approach_cat,
+                    result=combined_output[:200],
+                    found_something=found_something,
+                    new_surfaces=new_surfaces,
+                    new_findings=new_findings,
+                    new_info=new_info,
+                    blocked_by=blocked_by,
+                )
+                
+                if new_surfaces:
+                    Display.success(f"🎯 {len(new_surfaces)} new attack surface(s) discovered!")
+                if new_findings:
+                    Display.success(f"🔴 {len(new_findings)} new finding(s) from script!")
+                
+                # Detect tools that failed inside the script
                 not_found_in_script = _re.findall(r'([a-zA-Z0-9_.-]+):\s*(?:command )?not found', combined_output.lower())
                 for tool_name in not_found_in_script:
                     if tool_name not in ['bash', 'sh', 'python3', 'python'] and tool_name not in failed_tools:
@@ -658,17 +716,21 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                 last_command = f"[{script_type} script] {decision.get('reasoning', '')[:80]}"
                 last_output = combined_output[:3000]
                 
-                # Stuck-loop detection: if the same output hash repeats 3+ times, force phase switch
+                # Stuck-loop detection: if the same output hash repeats 3+ times, force escalation
                 import hashlib as _hl
                 out_hash = _hl.md5(combined_output[:500].encode()).hexdigest()[:8]
                 recent_outputs.append(out_hash)
                 if len(recent_outputs) > 10:
                     recent_outputs = recent_outputs[-10:]
                 if recent_outputs.count(out_hash) >= 3:
-                    Display.warning("⚠ Stuck loop detected (same output 3x). Forcing phase switch...")
+                    Display.warning("⚠ Stuck loop detected! Escalating strategy...")
                     self.executor.invalidate_cache()
                     recent_commands.clear()
                     recent_outputs.clear()
+                    # Escalate instead of just switching phase
+                    if self.strategy.escalation_level < 7:
+                        level_info = self.strategy.escalate()
+                        Display.warning(f"⚡ FORCED ESCALATION to Level {self.strategy.escalation_level} — {level_info.get('name', '')}")
                     if self.current_phase == "recon":
                         self.current_phase = "scan"
                     elif self.current_phase == "scan":
@@ -678,7 +740,7 @@ Give a direct, helpful answer. If the question asks for more scanning, suggest s
                     self.kb.update_phase(self.current_phase)
                     self.phase_iteration = 0
                     Display.phase(self.current_phase)
-                    last_output = f"SYSTEM: Stuck loop detected. Auto-switched to phase '{self.current_phase}'. Use a COMPLETELY DIFFERENT approach."
+                    last_output = f"SYSTEM: Stuck loop + escalation. Level {self.strategy.escalation_level}. Phase '{self.current_phase}'. Try COMPLETELY DIFFERENT approach — be more creative and aggressive!"
 
             # --- EXECUTE COMMAND ---
             elif action == "COMMAND":
